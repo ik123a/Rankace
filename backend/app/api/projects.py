@@ -49,6 +49,31 @@ def demo():
     return demo_dashboard()
 
 
+# Public (unauthenticated) intent classifier.
+#
+# DECLARATION ORDER IS LOAD-BEARING. FastAPI matches routes in registration
+# order, and `@router.get("/{project_id}")` below is typed `int`. A literal
+# single-segment path like "public-intent" therefore fails integer parsing and
+# gets answered by that route's auth dependency -- measured 401 on a
+# deliberately public endpoint, which broke the extension side panel's AI
+# intent feature. `/intent/classify` never showed the bug only because it has
+# a second path segment and cannot be captured by a one-segment parameter
+# route. Keep this block ABOVE every /{project_id} route.
+@router.get("/public-intent")
+@router.post("/public-intent")
+def public_intent_classify(query: str = "", payload: dict = None):
+    target = query
+    if payload and "query" in payload:
+        target = payload["query"]
+    return classify_intent(target or "")
+
+
+@router.get("/intent/classify")
+@router.post("/intent/classify")
+def intent_classify(query: str = ""):
+    return classify_intent(query)
+
+
 @router.get("/{project_id}")
 def get_project(project_id: int, db: Session = Depends(get_db), user: User = Depends(current_user)):
     return _owned(db, user, project_id)
@@ -276,15 +301,9 @@ def export_pdf_report(project_id: int, db: Session = Depends(get_db), user: User
     )
 
 
-@router.get("/intent/classify")
-@router.post("/intent/classify")
-@router.get("/public-intent")
-@router.post("/public-intent")
-def public_intent_classify(query: str = "", payload: dict = None):
-    target = query
-    if payload and "query" in payload:
-        target = payload["query"]
-    return classify_intent(target or "")
+# NOTE: /intent/classify and /public-intent are declared near the top of this
+# module, above the /{project_id} routes, because FastAPI resolves routes in
+# registration order. See the comment on public_intent_classify.
 
 
 experiments_router = APIRouter(prefix="/experiments", tags=["experiments"])
