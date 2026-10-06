@@ -136,9 +136,21 @@ export default function LandingPage() {
 
         // The track now starts at the shell gutter rather than the viewport
         // edge, so the pan distance is the overflow past the RIGHT edge.
+        //
+        // The distance must be measured against the wrap's CONTENT box, not its
+        // border box. `clientWidth` INCLUDES padding, so subtracting it from
+        // `track.scrollWidth` undershoots by exactly the left gutter: measured
+        // 404px computed vs 428px needed, leaving the 4th card permanently 24px
+        // short of the right edge no matter how far the user scrolls. The
+        // subtraction below removes the padding first.
         const distance = () => {
-          const viewport = track.parentElement?.clientWidth ?? window.innerWidth;
-          return Math.max(0, track.scrollWidth - viewport);
+          const wrap = track.parentElement;
+          const viewport = wrap?.clientWidth ?? window.innerWidth;
+          // wrap is non-null in practice (the track is always rendered inside
+          // it) but tsc cannot prove that, and getComputedStyle(null) throws.
+          const paddingLeft = (wrap ? parseFloat(getComputedStyle(wrap).paddingLeft) : 0) || 0;
+          const contentWidth = viewport - paddingLeft;
+          return Math.max(0, track.scrollWidth - contentWidth);
         };
 
         const tween = gsap.to(track, {
@@ -150,11 +162,33 @@ export default function LandingPage() {
             end: () => `+=${distance() + window.innerHeight * 0.5}`,
             pin: true,
             scrub: 1,
-            invalidateOnRefresh: true
+            invalidateOnRefresh: true,
+            // Drive the edge fades from the same scroll position as the pan, so
+            // they can never disagree with it. Written straight to the two
+            // overlay elements' opacity rather than through React state: this
+            // fires on every scroll frame, and a re-render per frame would
+            // thrash the tree for a purely visual value.
+            onUpdate: (self) => {
+              const p = self.progress;
+              const scope = wrap.parentElement;
+              if (!scope) return;
+              const left = scope.querySelector<HTMLElement>(".pipeline-fade-left");
+              const right = scope.querySelector<HTMLElement>(".pipeline-fade-right");
+              // Right fade fades out over the last ~28% of the pan, once the
+              // final card is arriving; left fades in over the first ~17%.
+              if (left) left.style.opacity = String(Math.min(1, p * 6));
+              if (right) right.style.opacity = String(Math.max(0, 1 - (p - 0.72) * 3.6));
+            }
           }
         });
 
-        const progress = pipelineTrack.current?.parentElement?.querySelector<HTMLElement>(
+        // The rail is NOT inside the track's parent. It lives in its own
+        // sibling <div> above the track wrapper, so querying
+        // `pipelineTrack.parentElement` returned null and the `if (progress)`
+        // guard silently skipped the whole animation -- measured at every
+        // scroll position: scaleX stayed matrix(0,0,0,1,0,0), width 0px. The
+        // rail was dead code that looked alive. Scope the query to the section.
+        const progress = root.current?.querySelector<HTMLElement>(
           "[data-pipeline-progress]"
         );
         if (progress) {
@@ -341,7 +375,22 @@ export default function LandingPage() {
           </div>
         </section>
 
-        <section ref={pipelineWrap} id="pipeline" className="relative overflow-x-clip border-y border-line-subtle">
+        {/* `bg-canvas` is REQUIRED, not decoration. ScrollTrigger sets
+            position:fixed on this section while pinned, which takes it out of
+            normal flow -- so the page content that scrolls underneath is no
+            longer covered by anything. With a transparent background the FAQ
+            heading scrolled up *behind* the pinned cards and both were visible
+            at once: measured at scrollY 2909/3009/3109, the heading's top sat
+            above the section's bottom edge while the section was fixed. That is
+            the "stray black text fragments leaking around the cards" in the
+            screenshots -- not overflow, and no z-index value fixes it, because
+            a transparent fixed element has nothing to occlude with. */}
+        <section
+          ref={pipelineWrap}
+          id="pipeline"
+          className="relative overflow-x-clip border-y border-line-subtle bg-canvas"
+        >
+
           <div className="shell shell-stage py-16 md:py-20">
             <h2 className="text-display-l text-ink-primary">How an audit moves</h2>
             <p className="measure mt-4 text-body text-ink-secondary">
@@ -378,11 +427,30 @@ export default function LandingPage() {
                   at a 390px viewport. Overflow-x:clip on the section
                   contains it (unlike overflow:hidden, it does not make
                   the wrapper a scroll container and steal the swipe). */}
-          <div className="shell shell-stage overflow-x-auto pb-16 md:overflow-x-visible md:pb-24">
-            <div
-              ref={pipelineTrack}
-              className="flex w-max gap-3 md:overflow-visible"
-            >
+          {/* `relative` establishes the containing block for the two edge-fade
+              overlays below. Without it `absolute inset-y-0 left-0` would
+              resolve against the pinned SECTION, stretching the fades over the
+              heading instead of hugging the card track. */}
+          <div className="shell shell-stage relative overflow-x-auto pb-16 md:overflow-x-visible md:pb-24">
+        {/* Edge fades. Without them the panned cards are hard-clipped by the
+            viewport edge and read as a BROKEN layout rather than a track with
+            more content -- there was no gradient, mask or scrollbar anywhere in
+            the section to signal "keep scrolling" (measured: 0 gradient
+            overlays, mask-image none). The class defaults are what a visitor
+            sees BEFORE the first scroll, when the track is unpanned and the
+            right side genuinely does run off the edge; the GSAP onUpdate below
+            then drives both from the pan progress so they can never disagree
+            with it. pointer-events-none so a fade never blocks a card click. */}
+        <div
+          aria-hidden="true"
+          className="pipeline-fade-right pointer-events-none absolute inset-y-0 right-0 z-10 hidden w-20 bg-gradient-to-l from-canvas to-transparent md:block"
+        />
+        <div
+          aria-hidden="true"
+          className="pipeline-fade-left pointer-events-none absolute inset-y-0 left-0 z-10 hidden w-20 bg-gradient-to-r from-canvas to-transparent opacity-0 md:block"
+        />
+
+        <div ref={pipelineTrack} className="flex w-max gap-3 md:overflow-visible">
             <Panel variant="hero" className="flex w-[80vw] shrink-0 flex-col gap-5 sm:w-[26rem]">
               <span className="font-mono text-mono-micro uppercase text-accent">Crawl</span>
               <h3 className="text-title-l text-ink-primary">Collect the evidence</h3>
