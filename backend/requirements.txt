@@ -1,0 +1,25 @@
+fastapi==0.115.*
+uvicorn[standard]==0.30.*
+pydantic==2.*
+pydantic-settings==2.*
+SQLAlchemy==2.*
+alembic==1.*
+psycopg[binary]==3.*
+python-jose[cryptography]==3.*
+passlib[bcrypt]==1.*
+python-multipart==0.0.*
+httpx==0.27.*
+beautifulsoup4==4.*
+lxml==5.*
+urllib3==2.*
+# numpy/pandas were pinned to 1.x, which is unbuildable on Python 3.13 (the
+# interpreter this project runs on) and segfaults at import. Nothing in
+# app/ imports numpy or pandas directly -- scikit-learn pulls numpy in
+# transitively and is happy on 2.x -- so the pin was only ever costing a
+# broken interpreter.
+numpy>=2,<3
+pandas>=2
+scikit-learn==1.*
+rapidfuzz==3.*
+fpdf2==2.*
+email-validator==2.*

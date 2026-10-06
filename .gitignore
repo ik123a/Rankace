@@ -1,0 +1,19 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+data/*.db
+data/*.sqlite*
+# The crawl database lives at backend/data/, which the patterns above do not
+# cover because they are anchored at the repo root. Verified with
+# `git check-ignore` before the first commit -- an un-ignored .db means the
+# SQLite file with every crawled URL and score lands in history permanently.
+backend/data/*.db
+backend/data/*.sqlite*
+node_modules/
+.next/
+dist/
+.DS_Store
+*.log
+*.tsbuildinfo

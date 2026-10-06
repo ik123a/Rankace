@@ -1,0 +1,409 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ---- Theme authority -------------------------------------------------
+   One block per theme. Dark is the default and lives on :root because
+   that is the document's baseline state; the light override lives on
+   :root[data-theme="light"] and overrides ONLY colour tokens. Every
+   colour the UI paints resolves through a var() in tailwind.config.js,
+   so switching the attribute re-themes the whole app with no component
+   edits and no second set of `dark:` utilities.
+
+   Deliberately NOT overridden here: spacing, radius, z-index, shadow
+   and motion tokens. Those are theme-invariant -- only colour inverts.
+   -------------------------------------------------------------------- */
+:root {
+  --gutter: 1rem;
+  --shell-stage: 84rem;
+  --shell-content: 76rem;
+
+  /* Dark palette (baseline). */
+  --surface-canvas: #08090a;
+  --surface-1: #0e1011;
+  --surface-2: #141718;
+  --surface-sunken: #050606;
+
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-default: rgba(255, 255, 255, 0.11);
+  --border-strong: rgba(255, 255, 255, 0.18);
+
+  --text-primary: #f2f3f3;
+  --text-secondary: #9ba1a6;
+  --text-tertiary: #7c838a;
+
+  --accent: #ff2e6b;
+  --accent-hover: #ff5486;
+  --accent-pressed: #e01a55;
+  --accent-quiet: rgba(255, 46, 107, 0.12);
+  --accent-line: rgba(255, 46, 107, 0.34);
+
+  --accent-fill: #b81a4b;
+  --accent-fill-hover: #ce2156;
+  --accent-fill-pressed: #a81542;
+
+  --danger-fill: #b3201f;
+  --danger-fill-hover: #c62a26;
+
+  --status-success: #2fbf71;
+  --status-warning: #d9a441;
+  --status-error: #e5484d;
+  --status-info: #4c9aff;
+
+  /* Canvas-painting colours. Canvas/WebGL cannot resolve var(), so these
+     are read by JS through getComputedStyle and mirrored into the draw
+     call -- see components/visuals/visibility-field.tsx. */
+  --canvas-particle: 242, 243, 243;
+  --canvas-line: 242, 243, 243;
+  --canvas-backdrop: 24, 20, 26;
+  --scrim: 4, 5, 6;
+
+  /* Elevation. Dark mode's recipe is a bright top inset + a heavy, slightly
+     tinted drop; on white both halves are wrong -- the inset disappears and
+     a near-black drop reads as a smudge. The light override below inverts
+     the recipe rather than just fading it. */
+  --shadow-panel:
+    inset 0 1px 0 rgba(255, 255, 255, 0.055), inset 0 0 0 1px rgba(255, 255, 255, 0.012),
+    0 1px 2px -1px rgba(0, 0, 0, 0.6), 0 18px 40px -22px rgba(4, 2, 8, 0.85);
+  --shadow-pop:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 2px 4px -2px rgba(0, 0, 0, 0.7),
+    0 28px 64px -18px rgba(4, 2, 8, 0.92);
+  --shadow-lift:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 0 0 1px var(--accent-line),
+    0 22px 48px -22px rgba(4, 2, 8, 0.9);
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+  --space-24: 6rem;
+  --space-32: 8rem;
+
+  --radius-sm: 0.375rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1.25rem;
+  --radius-pill: 9999px;
+
+  --z-base: 0;
+  --z-raised: 10;
+  --z-overlay: 20;
+  --z-modal: 30;
+  --z-toast: 40;
+  --z-grain: 50;
+
+  /* Full shell border-box width: the content cap plus one gutter each
+     side. Anchor targets and the pinned pipeline track resolve against
+     these so every horizontally-panned element shares one left edge. */
+  --shell-max: calc(var(--shell-stage) + 2 * var(--gutter));
+  --header-h: 4.5rem;
+
+  /* ---- On-fill ink --------------------------------------------------
+     Buttons paint --accent-fill as a background and set the label colour
+     to --ink-primary, which is correct in dark mode (light ink on a dark
+     rose) and WRONG in light mode: the primary ink there is near-black, so
+     a primary button rendered dark text on a saturated rose at 3.39:1,
+     below the 4.5:1 AA floor for its 13-15px label.
+
+     The fill and its label are a locked pair -- inverting one without the
+     other is the same class of bug. So both live here as one token.
+     ------------------------------------------------------------------ */
+  --on-accent-fill: #ffffff;
+
+  color-scheme: dark;
+}
+
+/* ---- Light theme ------------------------------------------------------
+   Applied via :root[data-theme="light"] on <html>, not a `.dark` class.
+   darkMode stays "class" in tailwind.config.js, but the app uses zero
+   `dark:` utilities -- every colour resolves through a var(), so this
+   attribute is the single switch. A media query is NOT used as the
+   mechanism: it cannot express an explicit user override, and a manual
+   toggle plus an OS preference is a precedence problem. The inline
+   script in layout.tsx resolves the stored preference against the OS
+   preference before first paint, so there is no flash.
+   -------------------------------------------------------------------- */
+:root[data-theme="light"] {
+  /* Surfaces invert and get LIGHTER with depth, the opposite of dark,
+     where elevation reads as a lighter panel on a near-black canvas. */
+  --surface-canvas: #f6f7f9;
+  --surface-1: #ffffff;
+  --surface-2: #ffffff;
+  --surface-sunken: #eceef2;
+
+  /* Alpha borders must invert too: white-on-white is invisible, so the
+     light values are dark inks at low alpha rather than white. */
+  --border-subtle: rgba(15, 18, 24, 0.07);
+  --border-default: rgba(15, 18, 24, 0.13);
+  --border-strong: rgba(15, 18, 24, 0.22);
+
+  --text-primary: #14171d;
+  --text-secondary: #4d545e;
+  /* Darkened from #6b727c: on --surface-sunken (#eceef2) the original measured
+     4.18:1, under the 4.5:1 AA floor for an 11px mono-micro label. #61686f
+     clears AA against BOTH the sunken surface (4.63:1) and the white panel
+     (5.06:1), so one value works for every surface it lands on. */
+  --text-tertiary: #61686f;
+
+  /* The same accent, darkened. #ff2e6b on white measures 3.9:1 -- below
+     the 4.5:1 AA threshold for body text -- so the light theme uses a
+     deeper rose that clears AA while staying in the same hue family. */
+  --accent: #d6004f;
+  --accent-hover: #b80044;
+  --accent-pressed: #93003a;
+  --accent-quiet: rgba(214, 0, 79, 0.09);
+  --accent-line: rgba(214, 0, 79, 0.32);
+
+  /* Solid fills invert direction: dark mode needs a DARKER fill than its
+     text colour (white on #b81a4b), light mode needs a LIGHTER one. */
+  --accent-fill: #d6004f;
+  --accent-fill-hover: #b80044;
+  --accent-fill-pressed: #93003a;
+
+  /* Light theme keeps WHITE labels on the fill. The fill is #d6004f, and
+     white on it measures 5.98:1 -- comfortably over AA -- whereas the dark
+     ink the shared variant used measured 3.39:1. */
+  --on-accent-fill: #ffffff;
+
+  --danger-fill: #b3201f;
+  --danger-fill-hover: #9a1b1a;
+
+  /* Status hues are darkened for the same contrast reason as the accent.
+     All four clear 4.5:1 against #ffffff. */
+  --status-success: #1a7f4b;
+  --status-warning: #9a6d09;
+  --status-error: #c0272d;
+  --status-info: #1f63c4;
+
+  --canvas-particle: 20, 23, 29;
+  --canvas-line: 20, 23, 29;
+  --canvas-backdrop: 236, 238, 242;
+  --scrim: 15, 18, 24;
+
+  /* Elevation inverts: the top inset becomes a hairline DARK line (the
+     light analogue of a lit top edge) and the drop is far lighter and
+     less tinted, because a 0.85-alpha near-black shadow on #f6f7f9
+     reads as dirt rather than depth. */
+  --shadow-panel:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9), inset 0 0 0 1px rgba(15, 18, 24, 0.04),
+    0 1px 2px -1px rgba(15, 18, 24, 0.08), 0 12px 28px -18px rgba(15, 18, 24, 0.16);
+  --shadow-pop:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95), 0 2px 4px -2px rgba(15, 18, 24, 0.1),
+    0 24px 56px -20px rgba(15, 18, 24, 0.2);
+  --shadow-lift:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95), 0 0 0 1px var(--accent-line),
+    0 18px 40px -20px rgba(15, 18, 24, 0.18);
+
+  color-scheme: light;
+}
+
+@media (min-width: 768px) {
+  :root {
+    --gutter: 1.5rem;
+    --header-h: 5rem;
+  }
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: var(--surface-canvas);
+    color: var(--text-primary);
+    font-family: var(--font-display), sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    /* Optical sizing: the same face reads heavier at display sizes. Keeping
+       one optical size across a 15px label and an 80px headline is what
+       makes a type scale feel flat. */
+    font-optical-sizing: auto;
+    /* Kerning and ligatures are on by default in most browsers but not
+       reliably for webfonts synthesised by next/font. */
+    font-kerning: normal;
+    font-variant-ligatures: common-ligatures;
+    font-feature-settings: "kern" 1, "liga" 1, "calt" 1;
+    /* Display type wants tighter defaults than the UA's 1.0. */
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Space Grotesk has no true small-caps; synthesising them on an uppercase
+     11px label is what makes a mono micro label look cheap. Keep the real
+     glyphs and let tracking carry the label. */
+  :where(.font-mono) {
+    font-variant-caps: normal;
+  }
+
+  /* Numerals must never reflow as they tick. */
+  [data-numeric],
+  table,
+  time {
+    font-variant-numeric: tabular-nums slashed-zero;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  ::selection {
+    background-color: var(--accent-quiet);
+    color: var(--text-primary);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  /* Anchor targets must clear the sticky nav pill, otherwise a jump to
+     #faq lands the heading underneath the header. */
+  :target {
+    scroll-margin-top: calc(var(--header-h) + var(--gutter));
+  }
+}
+
+@layer components {
+  /* Horizontal shell. The gutter sits OUTSIDE the content cap so the text
+     column -- not the border box -- is what reaches the declared width. */
+  .shell {
+    width: 100%;
+    margin-inline: auto;
+    padding-inline: var(--gutter);
+  }
+
+  .shell-stage {
+    max-width: calc(var(--shell-stage) + 2 * var(--gutter));
+  }
+
+  .shell-content {
+    max-width: calc(var(--shell-content) + 2 * var(--gutter));
+  }
+
+  /* Sticky header with clearance below the pill. */
+  .header-bar {
+    position: sticky;
+    top: 0;
+    z-index: var(--z-raised);
+    padding: var(--gutter) var(--gutter) 0;
+  }
+
+  .grain-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-grain);
+    pointer-events: none;
+    opacity: 0.035;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  .key-light {
+    background-image: radial-gradient(120% 90% at 22% 12%, rgba(255, 46, 107, 0.16), transparent 62%);
+  }
+
+  .rim-light {
+    background-image: radial-gradient(90% 70% at 82% 88%, rgba(76, 154, 255, 0.1), transparent 60%);
+  }
+
+  .instrument-grid {
+    background-size: 32px 32px;
+    background-image:
+      linear-gradient(to right, rgba(255, 255, 255, 0.028) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255, 255, 255, 0.028) 1px, transparent 1px);
+  }
+
+  /* ---- Light-theme overlay inversions ---------------------------------
+     .instrument-grid and .key-light paint WHITE gradients. On a near-black
+     canvas that reads as light; on #f6f7f9 white-on-white is invisible, so
+     the decorative layer silently disappears rather than looking wrong --
+     which is why this needs an explicit inversion and not just a token swap.
+     Same for .grain-overlay, which is a black-ish noise film by design.
+     -------------------------------------------------------------------- */
+  :root[data-theme="light"] .instrument-grid {
+    background-image:
+      linear-gradient(to right, rgba(15, 18, 24, 0.045) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(15, 18, 24, 0.045) 1px, transparent 1px);
+  }
+
+  :root[data-theme="light"] .key-light {
+    background-image: radial-gradient(120% 90% at 22% 12%, rgba(214, 0, 79, 0.1), transparent 62%);
+  }
+
+  :root[data-theme="light"] .rim-light {
+    background-image: radial-gradient(90% 70% at 82% 88%, rgba(31, 99, 196, 0.08), transparent 60%);
+  }
+
+  /* Noise film darkens on light; on dark it has to lighten, so the base
+     opacity is lowered here rather than left at the dark value. */
+  :root[data-theme="light"] .grain-overlay {
+    opacity: 0.02;
+  }
+
+  .measure {
+    max-width: 62ch;
+  }
+
+  .skip-link {
+    position: absolute;
+    left: -9999px;
+    top: 0;
+    z-index: calc(var(--z-modal) + 1);
+  }
+
+  .skip-link:focus {
+    left: var(--space-4);
+    top: var(--space-4);
+    padding: var(--space-2) var(--space-4);
+    background-color: var(--surface-2);
+    color: var(--text-primary);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+  }
+
+  .scroll-x {
+    overflow-x: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .scroll-x::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .glass {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    background-color: var(--surface-canvas) !important;
+  }
+}
