@@ -930,3 +930,13 @@
   }
   #rankace-inpage-drawer.rankace-open { transform: translateX(0) !important; }
 }
+
+/* Info-severity counter. Added with the severity-weighted scoring fix: the
+   drawer now reports info findings (e.g. non-descriptive anchor text) instead
+   of silently folding them into the warning count, so they need their own
+   chip. Same shape as the critical/warning chips, muted to match severity. */
+.rankace-count-info {
+  color: #7c838a;
+  background: rgba(124, 131, 138, 0.14);
+  border: 1px solid rgba(124, 131, 138, 0.28);
+}

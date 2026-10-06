@@ -293,6 +293,34 @@
     // Ensure score bounded [0, 100]
     score = Math.max(0, Math.min(100, Math.round(score)));
 
+    // ---- Severity-weighted scoring (replaces ad-hoc flat deductions) -----
+    //
+    // The previous scheme subtracted a hand-tuned constant PER CHECK, which
+    // meant the number of occurrences barely mattered. Measured on fixtures
+    // built from this file's own rules:
+    //   - 3 duplicate <h1> elements cost 8 points total (one flat -8), so a
+    //     page with 12 missing-alt images scored 80 while a page with 3 H1s
+    //     scored 92 -- the *worse* page scored higher.
+    //   - A page missing title, description, canonical, H1 AND thin content
+    //     landed at 29, but stacking more defects could not push it below the
+    //     sum of those constants, so severity ordering was arbitrary.
+    //
+    // Weighting per emitted issue instead makes the score a function of how
+    // many real defects exist and how serious each one is, which is what a
+    // "Live SEO Score" is supposed to mean.
+    const SEVERITY_WEIGHT = { critical: 9, warning: 3, info: 1 };
+    let weighted = 0;
+    for (const issue of issues) {
+      weighted += SEVERITY_WEIGHT[issue.severity] ?? 1;
+    }
+    // Each weighted point costs 1.6 score points. The multiplier is set from
+    // measurement, not taste: a page missing its title, description, canonical
+    // and H1 *and* carrying thin content (4 critical + 1 warning = 39 weighted)
+    // must land below 40, because that page is not meaningfully usable for
+    // search. At 1.15 it scored 55; at 1.6 it scores 38. A single warning still
+    // costs only ~5 points, so minor findings stay minor.
+    score = Math.max(0, Math.min(100, Math.round(100 - weighted * 1.6)));
+
     // Return structured report
     cachedAuditData = {
       url: window.location.href,
@@ -544,9 +572,15 @@
       document.body.appendChild(pill);
     }
 
+    // Count EVERY issue, not just critical+warning. The old line was
+    // `criticalCount + warningCount`, so a page whose only findings were
+    // info-severity (non-descriptive anchor text) displayed "Clean" while the
+    // drawer listed real problems -- the pill and the panel contradicted each
+    // other on the same page.
     const criticalCount = audit.issues.filter(i => i.severity === "critical").length;
     const warningCount = audit.issues.filter(i => i.severity === "warning").length;
-    const totalIssues = criticalCount + warningCount;
+    const infoCount = audit.issues.filter(i => i.severity === "info").length;
+    const totalIssues = audit.issues.length;
 
     pill.innerHTML = `
       <span class="rankace-icon">⚡</span>
@@ -625,6 +659,7 @@
 
     const critCount = audit.issues.filter(i => i.severity === "critical").length;
     const warnCount = audit.issues.filter(i => i.severity === "warning").length;
+    const infoCount = audit.issues.filter(i => i.severity === "info").length;
 
     let scoreStatus = audit.score >= 85 ? "Excellent Condition" : audit.score >= 65 ? "Needs Optimization" : "Critical Fixes Required";
     let scoreClass = audit.score >= 85 ? "rankace-ok" : audit.score >= 65 ? "rankace-warn" : "rankace-bad";
@@ -678,6 +713,7 @@
           <div class="rankace-counts">
             <span class="rankace-count rankace-count-critical">${critCount} Critical</span>
             <span class="rankace-count rankace-count-warning">${warnCount} Warnings</span>
+            ${infoCount > 0 ? `<span class="rankace-count rankace-count-info">${infoCount} Info</span>` : ""}
           </div>
         </div>
       </div>
