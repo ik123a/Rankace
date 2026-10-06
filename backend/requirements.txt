@@ -12,6 +12,12 @@ httpx==0.27.*
 beautifulsoup4==4.*
 lxml==5.*
 urllib3==2.*
+# Scrapling powers the crawler (C-backed Selector, stealth fetching). It is
+# imported inside a try/except in app/crawler/crawler.py with a BeautifulSoup
+# fallback, so the app runs without it -- but the fallback is slower and misses
+# the adaptive-selector and anti-bot-fetch behaviour, so it should be declared.
+# Installed and verified at 0.4.15.
+scrapling==0.4.*
 # numpy/pandas were pinned to 1.x, which is unbuildable on Python 3.13 (the
 # interpreter this project runs on) and segfaults at import. Nothing in
 # app/ imports numpy or pandas directly -- scikit-learn pulls numpy in
