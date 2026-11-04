@@ -15,7 +15,7 @@ import { ThemeToggle } from "../../components/ui/theme-toggle";
  * into the client bundle for one number; scripts/build-extension.mjs is the
  * thing that guarantees they agree, and it fails the build if they drift.
  */
-const VERSION = "1.0.0";
+const VERSION = "1.2.0";
 
 const ZIP_URL = `/download/rankace-extension-v${VERSION}.zip`;
 const SOURCE_URL = "/download/rankace-extension";
@@ -27,6 +27,11 @@ const NAV_ITEMS = [
 ];
 
 const CHECKS = [
+  {
+    name: "Indexability",
+    severity: "Indexability",
+    detail: "Reads meta robots and googlebot for noindex — the one finding that removes a page from results entirely."
+  },
   {
     name: "Title tag length",
     severity: "Metadata",
@@ -56,6 +61,26 @@ const CHECKS = [
     name: "Anchor text",
     severity: "Links",
     detail: "Finds empty links and non-descriptive anchors like “click here” and “read more”."
+  },
+  {
+    name: "Structured data",
+    severity: "Schema",
+    detail: "Lists every JSON-LD @type, catches invalid blocks, and flags pages with no schema at all."
+  },
+  {
+    name: "Social previews",
+    severity: "Social",
+    detail: "Checks og:title, og:description, og:image and twitter:card, with a SERP-shaped preview of the metadata."
+  },
+  {
+    name: "Link profile",
+    severity: "Links",
+    detail: "Internal vs external counts, nofollow/sponsored/ugc, and target=_blank links missing rel=noopener."
+  },
+  {
+    name: "Technical hygiene",
+    severity: "Technical",
+    detail: "Viewport, html lang, charset, meta refresh, hreflang fallback and mixed content on HTTPS pages."
   },
   {
     name: "Thin content",
@@ -128,10 +153,17 @@ export default function ExtensionPage() {
 
         {/* ---- What it checks ---- */}
         <section className="flex flex-col gap-4">
-          <h2 className="text-display-m text-ink-primary">Seven live checks</h2>
+          <h2 className="text-display-m text-ink-primary">Twelve live checks, plus the facts behind them</h2>
           <p className="measure text-body text-ink-secondary">
             Every check runs in the page you are on. Findings are weighted by severity, so the score
-            reflects how many real problems exist rather than how many rules fired.
+            reflects how many real problems exist rather than how many rules fired. Advisory findings
+            carry no weight at all, so a missing Twitter card can never make a healthy page look sick.
+          </p>
+          <p className="measure text-body-s text-ink-tertiary">
+            The side panel also reports the raw page facts: canonical, robots, language, viewport,
+            charset, hreflang, title and description lengths, DOM size, scripts and stylesheets — next to
+            a SERP preview, structured-data types, social coverage, link profile, heading outline and a
+            one-click full text report.
           </p>
 
           <div className="mt-4 grid gap-3 md:grid-cols-2">
@@ -144,6 +176,56 @@ export default function ExtensionPage() {
                 <p className="text-body-s text-ink-secondary">{check.detail}</p>
               </Panel>
             ))}
+          </div>
+        </section>
+
+        {/* ---- Auto-fix & quick tools ---- */}
+        <section className="flex flex-col gap-4">
+          <h2 className="text-display-m text-ink-primary">Fix the page, not just report it</h2>
+          <p className="measure text-body text-ink-secondary">
+            Version {VERSION} adds the correction pass: the inspector applies every fix it can make safely,
+            shows what it changed and what it deliberately left alone, and exports the corrected page as an
+            .html file you can deploy.
+          </p>
+
+          <div className="mt-2 grid gap-3 md:grid-cols-2">
+            <Panel className="flex flex-col gap-3">
+              <h3 className="text-title-m text-ink-primary">One-click Auto-Fix</h3>
+              <p className="text-body-s text-ink-secondary">
+                Derives and writes the missing title, meta description, canonical, lang, viewport and
+                charset; strips noindex; demotes duplicate H1s; fills image alt text from filenames; and
+                adds rel="noopener" to blank-target links. The score re-runs immediately — a page
+                we tested moved from 4 to 86 in one pass. Fixes live only in that tab; reload discards them.
+              </p>
+            </Panel>
+
+            <Panel className="flex flex-col gap-3">
+              <h3 className="text-title-m text-ink-primary">Corrected file export</h3>
+              <p className="text-body-s text-ink-secondary">
+                Builds the file from a clean clone of the document — extension UI stripped, body fixes
+                folded in, head tags derived from the page itself — and downloads it as
+                <span className="font-mono"> -rankace-fixed.html</span>. Nothing is uploaded; the whole
+                pass runs in the tab.
+              </p>
+            </Panel>
+
+            <Panel className="flex flex-col gap-3">
+              <h3 className="text-title-m text-ink-primary">Right-click SEO menu</h3>
+              <p className="text-body-s text-ink-secondary">
+                Audit the current page, highlight nofollow links, run site: and inurl: searches, check
+                selected text for duplicates, and jump to PageSpeed, the Rich Results Test, the W3C
+                validator, Wayback, SimilarWeb, Moz, Majestic and BuzzSumo in one click.
+              </p>
+            </Panel>
+
+            <Panel className="flex flex-col gap-3">
+              <h3 className="text-title-m text-ink-primary">Knows what it cannot fix</h3>
+              <p className="text-body-s text-ink-secondary">
+                Anything requiring judgement — a written title, a meta refresh that might be the routing —
+                is listed under "needs a human decision" instead of being guessed at. Page-supplied
+                strings are never copied into the exported file, so the output cannot carry injected markup.
+              </p>
+            </Panel>
           </div>
         </section>
 
@@ -178,10 +260,10 @@ export default function ExtensionPage() {
 
           <Panel className="flex flex-col gap-3">
             <ShieldCheck className="h-5 w-5 text-accent" aria-hidden="true" />
-            <h3 className="text-title-m text-ink-primary">Read-only</h3>
+            <h3 className="text-title-m text-ink-primary">Edits only on request</h3>
             <p className="text-body-s text-ink-secondary">
-              It inspects the DOM and draws overlays. It never edits your page, submits forms or
-              follows links on your behalf.
+              Inspection is passive. The page is modified only when you press Auto-Fix, only with
+              derivable corrections, only in that tab — it never submits forms or follows links for you.
             </p>
           </Panel>
 
@@ -207,10 +289,10 @@ export default function ExtensionPage() {
               <ScoreMeter value={100} variant="ring" size="lg" label="Clean page" />
             </Panel>
             <Panel className="flex flex-col items-center gap-3">
-              <ScoreMeter value={90} variant="ring" size="lg" label="3 warnings" />
+              <ScoreMeter value={90} variant="ring" size="lg" label="Duplicate H1s" />
             </Panel>
             <Panel className="flex flex-col items-center gap-3">
-              <ScoreMeter value={38} variant="ring" size="lg" label="5 criticals" />
+              <ScoreMeter value={28} variant="ring" size="lg" label="Missing core tags" />
             </Panel>
           </div>
         </section>

@@ -39,7 +39,10 @@ class ExperimentIn(BaseModel):
     title: str = Field(min_length=1, max_length=500)
     hypothesis: str = ""
     variant: str = ""
-    baseline_ctr: float = 0
-    variant_ctr: float = 0
-    status: str = "draft"
+    # Click-through rate is a percentage, so 0-100 is the only meaningful
+    # domain. Unbounded floats let a typo (25 instead of 2.5) save a "2500%"
+    # lift that then appeared in the experiment table as a real measurement.
+    baseline_ctr: float = Field(default=0, ge=0, le=100)
+    variant_ctr: float = Field(default=0, ge=0, le=100)
+    status: str = Field(default="draft", pattern="^(draft|running|complete|abandoned)$")
     result: str = ""

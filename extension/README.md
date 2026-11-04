@@ -31,8 +31,102 @@ You can activate Rankace on **any webpage** in 3 instant 1-click ways:
   - Displays docked corner badges (`top: 6px; left: 6px;`) that never cover text or headings above elements.
   - Hover tooltip cards expand downwards only on demand.
   - Clicking any issue card in the assistant smoothly scrolls the webpage directly to the offending element.
-- **Live On-Page Health Score (0–100)**: Instantly calculated from title tags, metadata, heading hierarchy, image accessibility, link health, and content density.
+- **Live On-Page Health Score (0–100)**: Weighted per finding, so the number reflects how many real problems exist and how serious each one is. Advisory findings carry zero weight and cannot mark a page unhealthy.
 - **Search Intent Classifier**: Type any target query into the assistant to test query intent against the Rankace NLP backend (`http://127.0.0.1:8000/api/projects/public-intent`).
+
+---
+
+## 🔍 Page Details & Checks (v1.1)
+
+Every finding below is read from the live DOM and shown in the side panel's detail sections; nothing is inferred.
+
+| Check | What it reports | Severity |
+|---|---|---|
+| **Indexability** | `meta robots` / `googlebot` containing `noindex` or `none` — the page cannot rank at all | Critical |
+| **Canonical** | Missing, self-referencing, or pointing at another domain | Warning |
+| **Meta refresh** | `<meta http-equiv="refresh">` soft redirects | Warning |
+| **Viewport** | Missing mobile viewport declaration | Warning |
+| **Language** | `<html lang>` absent | Warning |
+| **Mixed content** | HTTP subresources on an HTTPS page | Warning |
+| **JSON-LD** | Invalid blocks, blocks without `@type`, or no structured data at all | Warning / Info |
+| **Social metadata** | Missing `og:title`, `og:description`, `og:image`, `twitter:card` | Info |
+| **Hreflang** | Alternates declared without an `x-default` fallback | Info |
+| **Link profile** | Internal vs external, `nofollow` / `sponsored` / `ugc`, empty anchors, `target=_blank` without `rel=noopener` | Warning / Info |
+| **Image detail** | Missing dimensions (layout shift) and lazy-loaded count | Info |
+| **Heading outline** | Full H1–H6 outline in document order, plus skipped levels | Info |
+| **Thin content** | Pages under 250 words | Critical |
+
+### Detail panels
+
+- **SERP preview** — the title, URL and description rendered the way a results page would clip them.
+- **Page facts** — canonical, robots, language, viewport, charset, hreflang count, title/description lengths, DOM nodes, scripts and stylesheets.
+- **Structured data** — every `@type` found, microdata count, and invalid-block count.
+- **Social previews** — per-property presence for Open Graph and Twitter.
+- **Link profile** — internal, external, nofollow and safety chips.
+- **Heading outline** — the document's heading tree, scrollable.
+- **Copy Full Report** — the whole audit as plain text (score, facts, every finding and its fix) to the clipboard.
+
+All of it is mirrored in the in-page drawer (`Alt+R`), which adds a compact SERP preview and facts grid next to the bounding boxes.
+
+---
+
+## 🛠 Auto-Fix & Corrected File (v1.2)
+
+The inspector does not stop at reporting — it corrects what it can safely derive and hands back the fixed file.
+
+### One-click Auto-Fix
+
+Available from the drawer's **✨ Auto-Fix** button and the side panel's **Fix all fixable issues** button. Each pass:
+
+1. Reads the audit *before* the change (the score shown as `4 → 86` in tests is a real measurement).
+2. Applies only corrections that are derived, never invented:
+   - `<title>` from the page's H1 when the title tag is missing
+   - `meta description` from the opening paragraph
+   - self-referencing `rel=canonical`
+   - `<html lang>` from the browser locale
+   - `viewport`, `charset=utf-8`
+   - strips `noindex` / `none` from the robots meta (keeps every other directive)
+   - demotes duplicate `<h1>`s to `<h2>`
+   - fills missing `alt` text from image filenames
+   - adds `rel="noopener"` to `target="_blank"` links
+3. Re-runs the audit and shows every applied change, every skip, and everything that needs a human decision (written copy, meta refresh routing).
+
+Fixes are local to the tab: **reload discards them**. That is intentional — nothing touches the server.
+
+### Corrected file export
+
+**⬇ Download corrected .html** (drawer and side panel) builds the file from a *clean clone* of the document:
+
+- the pill, drawer and defect boxes are stripped before serialization
+- body fixes (H1 demotion, alt text, noopener) are folded in even if you never pressed Auto-Fix
+- head tags are derived with the same rules as the live pass
+- page-supplied strings (`og:description`, JSON-LD, `href`) are **never** copied into the output, so a hostile page cannot smuggle markup into the file you deploy
+
+The download is a plain `…-rankace-fixed.html` produced entirely in the browser.
+
+---
+
+## 🖱 Right-Click SEO Menu (v1.2)
+
+A `contextMenus` menu for the page you are on:
+
+- **⚡ Audit this page with Rankace** — opens the drawer (injecting the script if needed)
+- **Highlight nofollow links** — boxes every `rel=nofollow` link with its target
+- **Search this site on Google (`site:`)** / **Find this URL in Google (`inurl:`)**
+- **Check selected text for duplicates** — exact-phrase Google search on the selection
+- **SEO quick tools** → PageSpeed Insights, Rich Results Test, W3C Validator, Wayback Machine, SimilarWeb, Moz, Majestic, BuzzSumo
+
+The side panel carries the same eight tools as clickable chips, built from the active tab's URL.
+
+---
+
+## ✨ Motion
+
+- Drawer sections and issue cards rise in with a staggered 0.25–0.32 s entrance
+- Auto-fix results animate item by item so you can read the sequence of changes
+- Side-panel sections, chips and the quick-tools row fade up on render; tool chips lift on hover
+- All motion respects the existing easing tokens and disappears with the UI it belongs to
+
 - **Comet-Style Docking**:
   - In-Page sliding drawer directly inside the webpage.
   - Native Chrome Side Panel (`chrome.sidePanel`) docked neatly on the right.
@@ -61,8 +155,8 @@ You can activate Rankace on **any webpage** in 3 instant 1-click ways:
 
 ```text
 extension/
-├── manifest.json       # Manifest V3 (sidePanel, activeTab, scripting, storage)
-├── background.js       # Background service worker (1-click active tab activation)
+├── manifest.json       # Manifest V3 (sidePanel, activeTab, scripting, storage, contextMenus)
+├── background.js       # Service worker: 1-click activation + right-click SEO menu
 ├── content.js          # In-DOM live scanner, drawer, & visual bounding box engine
 ├── overlay.css         # Scoped styles for in-page drawer, bounding boxes, & tooltips
 ├── sidepanel.html      # Native side panel assistant UI

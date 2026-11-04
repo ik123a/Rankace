@@ -48,10 +48,14 @@ const FAQ = [
   }
 ];
 
+// `#classifier` was a dead anchor: no element on the page carried that id, so
+// the first nav item scrolled nowhere. The live classifier lives inside the
+// pinned pipeline track, which cannot be anchored to usefully (it is
+// horizontally panned), so the nav links to the chapter that contains it.
 const NAV_ITEMS = [
-  { label: "Intent classifier", href: "/#classifier" },
-  { label: "How it works", href: "/#pipeline" },
   { label: "Capabilities", href: "/#capabilities" },
+  { label: "How it works", href: "/#pipeline" },
+  { label: "Method", href: "/#method" },
   { label: "Questions", href: "/#faq" }
 ];
 
@@ -91,6 +95,10 @@ export default function LandingPage() {
         setIntentResult(data);
       }
     } catch {
+      // The API is unreachable. This is a small local approximation so the
+      // sandbox still demonstrates the idea, and it says so -- reporting a
+      // hardcoded 0.92 confidence as if the engine had classified it was the
+      // same fabricated-number problem the product criticises elsewhere.
       let detected = "Informational";
       const q = queryToTest.toLowerCase();
       if (q.includes("buy") || q.includes("price") || q.includes("order")) detected = "Transactional";
@@ -100,8 +108,8 @@ export default function LandingPage() {
         detected = "Navigational";
       setIntentResult({
         intent: detected,
-        confidence: 0.92,
-        why: `Identified keyword markers in query "${queryToTest}" matching ${detected}`
+        confidence: 0.5,
+        why: `API unreachable — offline keyword estimate for "${queryToTest}", not the live classifier.`
       });
     } finally {
       setLoading(false);
@@ -260,8 +268,12 @@ export default function LandingPage() {
                 46rem keeps three lines while lifting the rag to 34%, the
                 widest fill available without spilling to four lines. */}
             <h1 className="mt-6 max-w-[46rem] text-display-xl text-ink-primary">
-              {HEADLINE.map((word) => (
-                <span key={word} data-hero-word className="mr-[0.22em] inline-block">
+              {HEADLINE.map((word, index) => (
+                <span
+                  key={`${word}-${index}`}
+                  data-hero-word
+                  className="mr-[0.22em] inline-block"
+                >
                   {word}
                 </span>
               ))}
@@ -289,6 +301,12 @@ export default function LandingPage() {
           <p className="measure mt-4 text-body-l text-ink-secondary">
             Nothing Rankace suggests is a guess. Each one traces back to a crawl record or a semantic
             measurement you can inspect.
+          </p>
+          {/* The panels below carry example readings. Without this line they
+              read as live platform metrics, which is the same mislabelling
+              problem the product criticises in other SEO tools. */}
+          <p className="mt-3 font-mono text-mono-micro uppercase text-ink-tertiary">
+            Illustrative readings below · your audit produces its own
           </p>
 
           <div className="mt-12 grid auto-rows-auto grid-cols-1 gap-3 md:grid-cols-3 md:grid-flow-dense">
@@ -368,7 +386,7 @@ export default function LandingPage() {
                 your internal link graph.
               </p>
               <div className="rounded-sm border border-line-subtle bg-surface-sunken px-4 py-2 md:shrink-0">
-                <span className="font-mono text-mono-micro uppercase text-ink-tertiary">Last crawl</span>
+                <span className="font-mono text-mono-micro uppercase text-ink-tertiary">Example crawl</span>
                 <p className="mt-1 font-mono text-mono-data text-ink-primary">128 pages · depth 3</p>
               </div>
             </Panel>
@@ -517,8 +535,9 @@ export default function LandingPage() {
               <div className="flex flex-col gap-3 border-t border-line-subtle pt-4">
                 <IntentTag intent={toIntentClass(intentResult.intent)} />
                 <ScoreMeter
-                  value={Math.round((intentResult.confidence || 0.8) * 100)}
+                  value={Math.round(intentResult.confidence * 100)}
                   label="Confidence"
+                  showHealthWord={false}
                 />
                 <p className="text-body-s leading-relaxed text-ink-secondary">{intentResult.why}</p>
               </div>
@@ -539,7 +558,7 @@ export default function LandingPage() {
           </div>
         </section>
 
-        <section className="shell shell-stage py-24 md:py-32">
+        <section id="method" className="shell shell-stage py-24 md:py-32">
           <h2 className="text-display-l text-ink-primary">What this is not</h2>
           <p className="measure mt-8 text-body-l text-ink-secondary">
             {(

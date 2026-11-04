@@ -290,6 +290,406 @@
       score -= 15;
     }
 
+    // =============================================================
+    // H–O. DETAILED PAGE FACTS AND THE CHECKS THEY ENABLE
+    //
+    // Everything below is read from the live DOM and reported in the side
+    // panel. Nothing is inferred: a field is either present in the document
+    // or marked absent. Checks whose finding is advisory (social previews,
+    // structured data, image dimensions) emit `info` issues, which carry no
+    // score weight, so a page cannot be marked unhealthy for lacking a
+    // Twitter card.
+    // =============================================================
+
+    function metaContent(selector) {
+      const el = document.querySelector(selector);
+      return el ? (el.getAttribute("content") || "").trim() : "";
+    }
+
+    // H. Indexability -------------------------------------------------
+    const robotsMeta = [
+      metaContent('meta[name="robots" i]'),
+      metaContent('meta[name="googlebot" i]')
+    ]
+      .filter(Boolean)
+      .join(",")
+      .toLowerCase();
+    const isNoindex = /(^|[,\s])noindex([,\s]|$)/.test(robotsMeta) || /(^|[,\s])none([,\s]|$)/.test(robotsMeta);
+    if (isNoindex) {
+      issues.push({
+        id: "meta_noindex",
+        category: "Indexability",
+        severity: "critical",
+        title: "Page Is Set To Noindex",
+        message: `Robots meta is "${robotsMeta}". Search engines are told to drop this URL from the index, so it cannot rank regardless of content quality.`,
+        recommendation: "Remove 'noindex' from the robots meta if this page is meant to appear in search.",
+        targetSelector: null,
+        isPageLevel: true
+      });
+    }
+
+    // I. Canonical safety ---------------------------------------------
+    let canonicalSelf = null;
+    if (canonical) {
+      try {
+        const canonicalUrl = new URL(canonical, location.href);
+        canonicalSelf = canonicalUrl.hostname === location.hostname;
+        // Only a real page can contradict its own canonical. On about:blank --
+        // and in any document without an origin -- location.hostname is "",
+        // so every canonical would be reported as cross-domain.
+        if (location.hostname && !canonicalSelf) {
+          issues.push({
+            id: "canonical_cross_domain",
+            category: "Metadata",
+            severity: "warning",
+            title: "Canonical Points To Another Domain",
+            message: `rel=canonical targets ${canonicalUrl.hostname}, not ${location.hostname}. This page is asking Google to credit a different site.`,
+            recommendation: "Confirm this is intentional; otherwise make the canonical self-referencing.",
+            targetSelector: null,
+            isPageLevel: true
+          });
+        }
+      } catch (err) {
+        canonicalSelf = false;
+      }
+    }
+
+    const refreshMeta = document.querySelector('meta[http-equiv="refresh" i]');
+    if (refreshMeta) {
+      issues.push({
+        id: "meta_refresh",
+        category: "Technical",
+        severity: "warning",
+        title: "Meta Refresh Redirect",
+        message: `This page redirects with <meta http-equiv="refresh">: "${(refreshMeta.getAttribute("content") || "").trim()}". Crawlers treat it as a soft redirect.`,
+        recommendation: "Use a real 301 redirect at the server instead of a meta refresh.",
+        targetSelector: null,
+        isPageLevel: true
+      });
+    }
+
+    // J. Heading outline (document order, H1–H6) ----------------------
+    const headingNodes = Array.from(document.querySelectorAll("h1, h2, h3, h4, h5, h6"));
+    const headingCounts = { h1: 0, h2: 0, h3: 0, h4: 0, h5: 0, h6: 0 };
+    headingNodes.forEach((node) => {
+      const level = node.tagName.toLowerCase();
+      if (headingCounts[level] !== undefined) headingCounts[level] += 1;
+    });
+    const headingOutline = headingNodes.slice(0, 60).map((node) => ({
+      level: Number(node.tagName.substring(1)),
+      text: (node.textContent || "").replace(/\s+/g, " ").trim().slice(0, 110)
+    }));
+
+    // A skipped level (h2 straight to h4) breaks the document outline that
+    // assistive tech and crawlers use to derive page structure. Reported once
+    // per page with the first offending pair rather than per heading.
+    let skippedLevel = null;
+    for (let i = 1; i < headingOutline.length; i += 1) {
+      if (headingOutline[i].level - headingOutline[i - 1].level > 1) {
+        skippedLevel = headingOutline[i];
+        break;
+      }
+    }
+    if (skippedLevel) {
+      issues.push({
+        id: "heading_skip",
+        category: "Headings",
+        severity: "info",
+        title: `Heading Level Skips To H${skippedLevel.level}`,
+        message: `"${skippedLevel.text || "(empty heading)"}" follows a heading more than one level above it.`,
+        recommendation: "Nest headings one level at a time (h2 → h3) so the outline stays machine-readable.",
+        targetSelector: null,
+        isPageLevel: true
+      });
+    }
+
+    // K. Social metadata ----------------------------------------------
+    const ogTitle = metaContent('meta[property="og:title"]');
+    const ogDescription = metaContent('meta[property="og:description"]');
+    const ogImage = metaContent('meta[property="og:image"]');
+    const ogType = metaContent('meta[property="og:type"]');
+    const ogUrl = metaContent('meta[property="og:url"]');
+    const twitterCard = metaContent('meta[name="twitter:card"]');
+    const twitterTitle = metaContent('meta[name="twitter:title"]');
+    const twitterDescription = metaContent('meta[name="twitter:description"]');
+    const twitterImage = metaContent('meta[name="twitter:image"]');
+
+    const missingSocial = [];
+    if (!ogTitle) missingSocial.push("og:title");
+    if (!ogDescription) missingSocial.push("og:description");
+    if (!ogImage) missingSocial.push("og:image");
+    if (!twitterCard) missingSocial.push("twitter:card");
+    if (missingSocial.length > 0) {
+      issues.push({
+        id: "social_incomplete",
+        category: "Social",
+        severity: "info",
+        title: `Incomplete Social Preview (${missingSocial.length} missing)`,
+        message: `Missing: ${missingSocial.join(", ")}. Shared links fall back to the page title and the platform's placeholder image.`,
+        recommendation: "Add og:title, og:description and a 1200×630 og:image so shares render with control.",
+        targetSelector: null,
+        isPageLevel: true
+      });
+    }
+
+    // L. Structured data ---------------------------------------------
+    const jsonLdBlocks = Array.from(document.querySelectorAll('script[type="application/ld+json"]'));
+    const jsonLdTypes = [];
+    let invalidJsonLd = 0;
+    jsonLdBlocks.forEach((block) => {
+      const raw = block.textContent || "";
+      if (!raw.trim()) return;
+      try {
+        const parsed = JSON.parse(raw);
+        const visit = (node) => {
+          if (!node || typeof node !== "object") return;
+          if (Array.isArray(node)) {
+            node.forEach(visit);
+            return;
+          }
+          const type = node["@type"];
+          if (typeof type === "string") jsonLdTypes.push(type);
+          if (Array.isArray(type)) type.forEach((t) => typeof t === "string" && jsonLdTypes.push(t));
+          if (node["@graph"] && Array.isArray(node["@graph"])) node["@graph"].forEach(visit);
+        };
+        visit(parsed);
+      } catch (err) {
+        invalidJsonLd += 1;
+      }
+    });
+    const microdataItems = document.querySelectorAll("[itemscope][itemtype]").length;
+
+    if (invalidJsonLd > 0) {
+      issues.push({
+        id: "schema_invalid",
+        category: "Schema",
+        severity: "warning",
+        title: `Invalid JSON-LD (${invalidJsonLd} block${invalidJsonLd === 1 ? "" : "s"})`,
+        message: "A structured-data block is not valid JSON, so search engines ignore it entirely.",
+        recommendation: "Validate the JSON-LD (trailing commas and unescaped quotes are the usual causes).",
+        targetSelector: null,
+        isPageLevel: true
+      });
+    }
+    if (jsonLdBlocks.length === 0 && microdataItems === 0) {
+      issues.push({
+        id: "schema_missing",
+        category: "Schema",
+        severity: "info",
+        title: "No Structured Data Found",
+        message: "No JSON-LD and no microdata. Rich results (Article, FAQ, Breadcrumb, Product) are unavailable to this page.",
+        recommendation: "Add JSON-LD matching the page type; Organization at the root and Article/BreadcrumbList on content.",
+        targetSelector: null,
+        isPageLevel: true
+      });
+    } else if (invalidJsonLd === 0 && jsonLdTypes.length === 0 && microdataItems === 0) {
+      // Only when the block parsed. An INVALID block already produced its own
+      // finding above; reporting "has no @type" for a block that could not be
+      // parsed at all describes a different problem and suggests the wrong fix.
+      issues.push({
+        id: "schema_low_value",
+        category: "Schema",
+        severity: "info",
+        title: "Structured Data Without A Type",
+        message: "A JSON-LD block exists but declares no @type, so no rich result can be generated from it.",
+        recommendation: "Give every JSON-LD object a schema.org @type such as Article or Organization.",
+        targetSelector: null,
+        isPageLevel: true
+      });
+    }
+
+    // M. Technical and mobile -----------------------------------------
+    const viewportMeta = metaContent('meta[name="viewport" i]');
+    if (!viewportMeta) {
+      issues.push({
+        id: "viewport_missing",
+        category: "Technical",
+        severity: "warning",
+        title: "No Viewport Meta Tag",
+        message: "Without a viewport declaration mobile browsers render the desktop layout scaled down.",
+        recommendation: 'Add <meta name="viewport" content="width=device-width, initial-scale=1">.',
+        targetSelector: null,
+        isPageLevel: true
+      });
+    }
+
+    const htmlLang = (document.documentElement.getAttribute("lang") || "").trim();
+    if (!htmlLang) {
+      issues.push({
+        id: "lang_missing",
+        category: "Technical",
+        severity: "warning",
+        title: "Missing Page Language",
+        message: "<html> has no lang attribute, so screen readers and translation tools must guess the language.",
+        recommendation: 'Declare it, e.g. <html lang="en">.',
+        targetSelector: null,
+        isPageLevel: true
+      });
+    }
+
+    const charsetMeta = document.querySelector('meta[charset]');
+    const charset = charsetMeta ? (charsetMeta.getAttribute("charset") || "").trim() : "";
+
+    const isHttps = location.protocol === "https:";
+    const mixedContent = isHttps
+      ? Array.from(document.querySelectorAll("img[src], script[src], link[href], iframe[src]")).filter((el) => {
+          const value = el.getAttribute("src") || el.getAttribute("href") || "";
+          return /^http:\/\//i.test(value);
+        })
+      : [];
+    if (mixedContent.length > 0) {
+      issues.push({
+        id: "mixed_content",
+        category: "Technical",
+        severity: "warning",
+        title: `Mixed Content (${mixedContent.length} resource${mixedContent.length === 1 ? "" : "s"})`,
+        message: "This HTTPS page loads resources over plain HTTP. Browsers block or downgrade them, and they can break layout.",
+        recommendation: "Serve every subresource over HTTPS (or protocol-relative URLs).",
+        targetSelector: null,
+        isPageLevel: true
+      });
+    }
+
+    // Hreflang: a set that never references itself is the most common mistake.
+    const hreflangNodes = Array.from(document.querySelectorAll('link[rel="alternate"][hreflang]'));
+    const hreflangCodes = hreflangNodes.map((node) => (node.getAttribute("hreflang") || "").toLowerCase());
+    if (hreflangNodes.length > 0 && !hreflangCodes.includes("x-default")) {
+      issues.push({
+        id: "hreflang_no_xdefault",
+        category: "Technical",
+        severity: "info",
+        title: "Hreflang Set Has No x-default",
+        message: `${hreflangNodes.length} hreflang alternates are declared but none targets x-default, so unmatched locales have no fallback.`,
+        recommendation: 'Add <link rel="alternate" hreflang="x-default" href="..."> for the global fallback.',
+        targetSelector: null,
+        isPageLevel: true
+      });
+    }
+
+    // N. Link profile --------------------------------------------------
+    const hrefLinks = Array.from(document.querySelectorAll("a[href]"));
+    let internalLinks = 0;
+    let externalLinks = 0;
+    let nofollowLinks = 0;
+    let sponsoredLinks = 0;
+    let ugcLinks = 0;
+    let newTabMissingNoopener = 0;
+    hrefLinks.forEach((a) => {
+      const href = (a.getAttribute("href") || "").trim();
+      if (!href || href === "#" || href.startsWith("javascript:") || href.startsWith("mailto:") || href.startsWith("tel:")) return;
+      try {
+        const url = new URL(href, location.href);
+        if (url.hostname === location.hostname) internalLinks += 1;
+        else externalLinks += 1;
+      } catch (err) {
+        internalLinks += 1;
+      }
+      const rel = (a.getAttribute("rel") || "").toLowerCase();
+      if (rel.includes("nofollow")) nofollowLinks += 1;
+      if (rel.includes("sponsored")) sponsoredLinks += 1;
+      if (rel.includes("ugc")) ugcLinks += 1;
+      if ((a.getAttribute("target") || "").toLowerCase() === "_blank") {
+        if (!rel.includes("noopener") && !rel.includes("noreferrer")) newTabMissingNoopener += 1;
+      }
+    });
+    if (newTabMissingNoopener > 0) {
+      issues.push({
+        id: "target_blank_noopener",
+        category: "Links",
+        severity: "warning",
+        title: `${newTabMissingNoopener} Blank-Target Link${newTabMissingNoopener === 1 ? "" : "s"} Without rel=noopener`,
+        message: "target=\"_blank\" without rel=noopener gives the opened page a handle on window.opener (reverse tabnabbing).",
+        recommendation: 'Add rel="noopener" (or "noreferrer") to every target="_blank" link.',
+        targetSelector: null,
+        isPageLevel: true
+      });
+    }
+
+    // O. Image detail --------------------------------------------------
+    const allImages = Array.from(document.querySelectorAll("img"));
+    let imagesMissingDimensions = 0;
+    let lazyImages = 0;
+    allImages.forEach((img) => {
+      if (!img.getAttribute("width") || !img.getAttribute("height")) imagesMissingDimensions += 1;
+      if ((img.getAttribute("loading") || "").toLowerCase() === "lazy") lazyImages += 1;
+    });
+    if (imagesMissingDimensions > 0) {
+      issues.push({
+        id: "img_no_dimensions",
+        category: "Images",
+        severity: "info",
+        title: `${imagesMissingDimensions} Image${imagesMissingDimensions === 1 ? "" : "s"} Without Width/Height`,
+        message: "Images without explicit dimensions shift the layout as they load (Cumulative Layout Shift), which Core Web Vitals penalises.",
+        recommendation: "Set width and height attributes, or reserve space with aspect-ratio in CSS.",
+        targetSelector: null,
+        isPageLevel: true
+      });
+    }
+
+    const faviconHref = (document.querySelector('link[rel~="icon"]') || {}).href || "";
+    const pageFacts = {
+      meta: {
+        title,
+        titleLength: titleLen,
+        description: metaDesc,
+        descriptionLength: descLen,
+        robots: robotsMeta || "(none)",
+        noindex: isNoindex,
+        canonical,
+        canonicalSelf,
+        lang: htmlLang,
+        viewport: viewportMeta,
+        charset,
+        favicon: faviconHref,
+        metaRefresh: refreshMeta ? (refreshMeta.getAttribute("content") || "").trim() : ""
+      },
+      social: {
+        ogTitle,
+        ogDescription,
+        ogImage,
+        ogType,
+        ogUrl,
+        twitterCard,
+        twitterTitle,
+        twitterDescription,
+        twitterImage,
+        missing: missingSocial
+      },
+      headings: { counts: headingCounts, outline: headingOutline },
+      links: {
+        total: hrefLinks.length,
+        internal: internalLinks,
+        external: externalLinks,
+        nofollow: nofollowLinks,
+        sponsored: sponsoredLinks,
+        ugc: ugcLinks,
+        emptyAnchor: emptyLinkCount,
+        newTabMissingNoopener
+      },
+      images: {
+        total: allImages.length,
+        missingAlt: missingAltCount,
+        missingDimensions: imagesMissingDimensions,
+        lazy: lazyImages
+      },
+      schema: {
+        blocks: jsonLdBlocks.length,
+        types: Array.from(new Set(jsonLdTypes)),
+        invalidBlocks: invalidJsonLd,
+        microdataItems
+      },
+      hreflang: { count: hreflangNodes.length, codes: hreflangCodes },
+      tech: {
+        https: isHttps,
+        mixedContent: mixedContent.length,
+        wordCount,
+        readingTimeMinutes: Math.max(1, Math.round(wordCount / 200)),
+        domNodes: document.getElementsByTagName("*").length,
+        scripts: document.scripts.length,
+        stylesheets: document.styleSheets.length
+      }
+    };
+
     // Ensure score bounded [0, 100]
     score = Math.max(0, Math.min(100, Math.round(score)));
 
@@ -308,7 +708,13 @@
     // Weighting per emitted issue instead makes the score a function of how
     // many real defects exist and how serious each one is, which is what a
     // "Live SEO Score" is supposed to mean.
-    const SEVERITY_WEIGHT = { critical: 9, warning: 3, info: 1 };
+    //
+    // `info` is weight 0. The advisory checks added with the page-facts layer
+    // (social preview completeness, missing structured data, image dimensions,
+    // heading skips) are recommendations, not defects: a page cannot be
+    // unhealthy for lacking a Twitter card, and carrying ten of those findings
+    // used to move the score more than one genuine critical.
+    const SEVERITY_WEIGHT = { critical: 9, warning: 3, info: 0 };
     let weighted = 0;
     for (const issue of issues) {
       weighted += SEVERITY_WEIGHT[issue.severity] ?? 1;
@@ -325,6 +731,11 @@
     cachedAuditData = {
       url: window.location.href,
       domain: window.location.hostname,
+      // Top-level `title` is what the side panel and the drawer both read.
+      // It was never populated (only stats.title existed), so every page
+      // rendered as "Untitled Webpage" and the drawer silently dropped its
+      // page-title line. Keep both: stats.title feeds the facts grid.
+      title,
       score,
       stats: {
         title,
@@ -340,8 +751,16 @@
         totalLinks: links.length,
         emptyLinkCount,
         wordCount,
-        readingTimeMinutes: Math.max(1, Math.round(wordCount / 200))
+        readingTimeMinutes: Math.max(1, Math.round(wordCount / 200)),
+        internalLinks: internalLinks,
+        externalLinks: externalLinks,
+        nofollowLinks: nofollowLinks,
+        schemaTypes: pageFacts.schema.types,
+        robots: robotsMeta || "(none)",
+        lang: htmlLang,
+        noindex: isNoindex
       },
+      facts: pageFacts,
       issues: issues.map(({ domElement, ...rest }) => rest) // strip non-serializable elements for messaging
     };
 
@@ -631,6 +1050,7 @@
           </div>
         </div>
         <div class="rankace-drawer-actions">
+          <button id="rankace-drawer-autofix" class="rankace-drawer-btn rankace-autofix-btn" title="Apply all safe corrections to this page">✨ Auto-Fix</button>
           <button id="rankace-drawer-rescan" class="rankace-drawer-btn" title="Re-scan DOM">🔄 Re-Scan</button>
           <button id="rankace-drawer-close" class="rankace-drawer-close" title="Close Assistant (Esc)">&times;</button>
         </div>
@@ -650,12 +1070,19 @@
       highlightAllIssuesOnPage(audit.issues);
     });
 
+    drawer.querySelector("#rankace-drawer-autofix").addEventListener("click", () => {
+      const result = applyAllFixes();
+      renderDrawerContent(runLiveAudit(), result);
+      highlightAllIssuesOnPage(cachedAuditData ? cachedAuditData.issues : []);
+    });
+
     return drawer;
   }
 
-  function renderDrawerContent(audit) {
+  function renderDrawerContent(audit, fixResult) {
     const body = document.getElementById("rankace-drawer-body");
     if (!body) return;
+    if (fixResult === undefined) fixResult = lastFixResult;
 
     const critCount = audit.issues.filter(i => i.severity === "critical").length;
     const warnCount = audit.issues.filter(i => i.severity === "warning").length;
@@ -718,6 +1145,87 @@
         </div>
       </div>
 
+      <!-- Page Facts + SERP preview (mirrors the side panel's detail view) -->
+      <div class="rankace-card">
+        <div class="rankace-card-row">
+          <span class="rankace-eyebrow">PAGE FACTS</span>
+          <span class="rankace-timestamp">${audit.stats.wordCount.toLocaleString()} words</span>
+        </div>
+        <div class="rankace-serp">
+          <div class="rankace-serp-url">${escapeHTML(audit.url)}</div>
+          <div class="rankace-serp-title">${escapeHTML(audit.title || "(no title tag)")}</div>
+          <div class="rankace-serp-desc">${escapeHTML(audit.stats.metaDescription || "(no meta description — search engines will invent a snippet)")}</div>
+        </div>
+        <div class="rankace-facts-grid">
+          ${[
+            ["Robots", audit.facts && audit.facts.meta ? audit.facts.meta.robots : "—"],
+            ["Canonical", audit.stats.canonical ? (audit.facts && audit.facts.meta && audit.facts.meta.canonicalSelf === false ? "cross-domain" : "self") : "missing"],
+            ["Language", (audit.facts && audit.facts.meta && audit.facts.meta.lang) || "missing"],
+            ["Schema", audit.facts && audit.facts.schema.types.length ? audit.facts.schema.types.slice(0, 3).join(", ") : "none"],
+            ["Links in / out", `${audit.stats.internalLinks || 0} / ${audit.stats.externalLinks || 0}`],
+            ["Nofollow", String(audit.stats.nofollowLinks || 0)]
+          ].map(([label, value]) => `
+            <div class="rankace-fact">
+              <span class="rankace-fact-label">${escapeHTML(label)}</span>
+              <span class="rankace-fact-value">${escapeHTML(String(value))}</span>
+            </div>
+          `).join("")}
+        </div>
+        <button id="rankace-drawer-copy-report" class="rankace-copy-btn" style="margin-top:10px;width:100%;justify-content:center;">
+          📋 Copy Full Report
+        </button>
+      </div>
+
+      <!-- Auto-Fix card -->
+      <div class="rankace-card rankace-autofix-card">
+        <div class="rankace-card-row">
+          <span class="rankace-eyebrow">AUTO-FIX</span>
+          <span class="rankace-timestamp">${fixResult ? `${fixResult.scoreBefore} → ${fixResult.scoreAfter}` : "local only"}</span>
+        </div>
+        ${fixResult ? `
+          <div class="rankace-autofix-summary">
+            ${fixResult.applied.length > 0 ? `<div class="rankace-autofix-line rankace-ok">✓ ${fixResult.applied.length} correction${fixResult.applied.length === 1 ? "" : "s"} applied to this page</div>` : ""}
+            ${fixResult.skipped.length > 0 ? `<div class="rankace-autofix-line rankace-warn">⚠ ${fixResult.skipped.length} could not be derived automatically</div>` : ""}
+            ${fixResult.manual.length > 0 ? `<div class="rankace-autofix-line rankace-warn">✎ ${fixResult.manual.length} need a human decision</div>` : ""}
+          </div>
+          <div class="rankace-autofix-list">
+            ${fixResult.applied.map(f => `
+              <div class="rankace-autofix-item">
+                <span class="rankace-autofix-check">✓</span>
+                <div>
+                  <div class="rankace-autofix-title">${escapeHTML(f.title)}</div>
+                  ${f.detail ? `<div class="rankace-autofix-detail">${escapeHTML(f.detail)}</div>` : ""}
+                </div>
+              </div>
+            `).join("")}
+            ${fixResult.manual.map(f => `
+              <div class="rankace-autofix-item">
+                <span class="rankace-autofix-check rankace-manual">✎</span>
+                <div>
+                  <div class="rankace-autofix-title">${escapeHTML(f.title)}</div>
+                  ${f.detail ? `<div class="rankace-autofix-detail">${escapeHTML(f.detail)}</div>` : ""}
+                </div>
+              </div>
+            `).join("")}
+          </div>
+          <div class="rankace-autofix-note">
+            Fixes live only in this tab — reload discards them. Download the corrected file to keep them.
+          </div>
+          <div class="rankace-autofix-actions">
+            <button id="rankace-drawer-download-html" class="rankace-copy-btn rankace-autofix-primary">⬇ Download corrected .html</button>
+            <button id="rankace-drawer-fix-again" class="rankace-copy-btn">🔄 Re-run</button>
+          </div>
+        ` : `
+          <div class="rankace-autofix-desc">
+            Correct every issue the extension can fix safely — title, description, canonical, lang, viewport, charset, noindex, duplicate H1s, image alt text and link rel — then export the corrected page as an .html file.
+          </div>
+          <div class="rankace-autofix-actions">
+            <button id="rankace-drawer-run-fixes" class="rankace-copy-btn rankace-autofix-primary">✨ Fix all fixable issues</button>
+            <button id="rankace-drawer-download-html" class="rankace-copy-btn">⬇ Corrected file</button>
+          </div>
+        `}
+      </div>
+
       <!-- Master Box Toggle Switch -->
       <div class="rankace-toggle-row">
         <div>
@@ -771,6 +1279,19 @@
       });
     }
 
+    // Copy the whole audit as text, so a finding can leave the browser.
+    const drawerCopyReport = body.querySelector("#rankace-drawer-copy-report");
+    if (drawerCopyReport) {
+      drawerCopyReport.addEventListener("click", () => {
+        const text = buildTextReport(audit);
+        navigator.clipboard.writeText(text).then(() => {
+          const prev = drawerCopyReport.innerHTML;
+          drawerCopyReport.innerHTML = "✓ Report copied";
+          setTimeout(() => { drawerCopyReport.innerHTML = prev; }, 1800);
+        });
+      });
+    }
+
     // Copy URL button in drawer
     const drawerCopyBtn = body.querySelector("#rankace-drawer-copy-url");
     if (drawerCopyBtn) {
@@ -786,6 +1307,34 @@
         });
       });
     }
+
+    // Auto-Fix card buttons
+    const runFixesBtn = body.querySelector("#rankace-drawer-run-fixes");
+    if (runFixesBtn) {
+      runFixesBtn.addEventListener("click", () => {
+        const result = applyAllFixes();
+        renderDrawerContent(runLiveAudit(), result);
+        highlightAllIssuesOnPage(cachedAuditData ? cachedAuditData.issues : []);
+      });
+    }
+    const fixAgainBtn = body.querySelector("#rankace-drawer-fix-again");
+    if (fixAgainBtn) {
+      fixAgainBtn.addEventListener("click", () => {
+        const result = applyAllFixes();
+        renderDrawerContent(runLiveAudit(), result);
+        highlightAllIssuesOnPage(cachedAuditData ? cachedAuditData.issues : []);
+      });
+    }
+    const downloadHtmlBtns = body.querySelectorAll("#rankace-drawer-download-html");
+    downloadHtmlBtns.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const res = downloadCorrectedHtml();
+        const prev = btn.innerHTML;
+        btn.innerHTML = res.ok ? `✓ Saved ${res.filename}` : `⚠ ${res.note}`;
+        btn.classList.add("rankace-is-done");
+        setTimeout(() => { btn.innerHTML = prev; btn.classList.remove("rankace-is-done"); }, 2600);
+      });
+    });
 
     // Toggle bounding boxes listener
     const toggleBoxes = body.querySelector("#rankace-drawer-toggle-boxes");
@@ -813,6 +1362,32 @@
     });
   }
 
+  function buildTextReport(audit) {
+    const lines = [
+      `Rankace page report — ${audit.url}`,
+      `Scanned: ${new Date().toISOString()}`,
+      `On-page score: ${audit.score}/100`,
+      "",
+      `Title (${audit.stats.titleLength}): ${audit.stats.title || "(missing)"}`,
+      `Description (${audit.stats.metaDescLength}): ${audit.stats.metaDescription || "(missing)"}`,
+      `Canonical: ${audit.stats.canonical || "(missing)"}`,
+      `Robots: ${audit.stats.robots || "(none)"}`,
+      `Language: ${audit.stats.lang || "(missing)"}`,
+      `Words: ${audit.stats.wordCount} · H1: ${audit.stats.h1Count} · H2: ${audit.stats.h2Count} · H3: ${audit.stats.h3Count}`,
+      `Links: ${audit.stats.internalLinks} internal / ${audit.stats.externalLinks} external / ${audit.stats.nofollowLinks} nofollow`,
+      `Schema: ${(audit.stats.schemaTypes || []).join(", ") || "none"}`,
+      "",
+      `Findings (${audit.issues.length}):`
+    ];
+    audit.issues.forEach((issue) => {
+      lines.push(`- [${issue.severity.toUpperCase()}] ${issue.title}`);
+      lines.push(`  ${issue.message}`);
+      lines.push(`  Fix: ${issue.recommendation}`);
+      if (issue.targetSelector) lines.push(`  Element: ${issue.targetSelector}`);
+    });
+    return lines.join("\n");
+  }
+
   function escapeHTML(str) {
     return (str || "").replace(/[&<>'"]/g, tag => ({
       '&': '&amp;',
@@ -825,6 +1400,570 @@
 
   function escapeAttr(str) {
     return (str || "").replace(/"/g, '&quot;');
+  }
+
+  // -------------------------------------------------------------
+  // 4b. AUTO-FIX ENGINE
+  //
+  // Two products, both derived from the same audit:
+  //   1. LIVE PATCH  -- applies safe DOM mutations so the user sees the
+  //      corrected page immediately (head tags, alt text, rel/target).
+  //      Patches are reversible in-session and purely local: no data leaves
+  //      the browser, and reloading the page discards them.
+  //   2. CORRECTED FILE -- a serialization of the ORIGINAL html with the
+  //      same head-level fixes folded in, downloadable as .html so it can
+  //      be uploaded to the real server. The body is never rewritten,
+  //      because the page's framework owns it.
+  //
+  // Every fix is derived from facts already collected by runLiveAudit(),
+  // and NEVER from page-supplied strings (og:description, JSON-LD, href
+  // attributes): those are untrusted input and would let a page inject
+  // markup into the downloaded file. Anything unresolved is listed in
+  // `manual` instead of guessed at.
+
+  const AUTO_FIX = {
+    applied: [],
+    skipped: [],
+    manual: []
+  };
+
+  // The last auto-fix result stays sticky: the MutationObserver re-renders
+  // the drawer after every page mutation (including our own fixes) and would
+  // otherwise erase the results card 400ms after it appears.
+  let lastFixResult = null;
+
+  function resetAutoFix() {
+    AUTO_FIX.applied = [];
+    AUTO_FIX.skipped = [];
+    AUTO_FIX.manual = [];
+  }
+
+  function recordAutoFix(fix) {
+    AUTO_FIX.applied.push(fix);
+    return fix;
+  }
+
+  function recordSkipped(id, reason) {
+    AUTO_FIX.skipped.push({ id, reason });
+    return null;
+  }
+
+  // -- head tag helpers (safe: only our own literals or derived values) ---
+  function ensureHead() {
+    let head = document.head;
+    if (!head) {
+      head = document.createElement("head");
+      document.documentElement.insertBefore(head, document.documentElement.firstChild);
+    }
+    return head;
+  }
+
+  function ensureMetaByName(name) {
+    const lower = name.toLowerCase();
+    let el = Array.from(document.querySelectorAll("meta[name]")).find(
+      (m) => (m.getAttribute("name") || "").toLowerCase() === lower
+    );
+    if (!el) {
+      el = document.createElement("meta");
+      el.setAttribute("name", name);
+      ensureHead().appendChild(el);
+    }
+    return el;
+  }
+
+  function ensureMetaByProperty(prop) {
+    const lower = prop.toLowerCase();
+    let el = Array.from(document.querySelectorAll("meta[property]")).find(
+      (m) => (m.getAttribute("property") || "").toLowerCase() === lower
+    );
+    if (!el) {
+      el = document.createElement("meta");
+      el.setAttribute("property", prop);
+      ensureHead().appendChild(el);
+    }
+    return el;
+  }
+
+  function ensureCanonical() {
+    let el = document.querySelector('link[rel="canonical"]');
+    if (!el) {
+      el = document.createElement("link");
+      el.setAttribute("rel", "canonical");
+      ensureHead().appendChild(el);
+    }
+    return el;
+  }
+
+  function addIssueIfAbsent(id, issue, issues) {
+    if (!issues.some((i) => i.id === id)) issues.push(issue);
+  }
+
+  function slugify(text) {
+    return (text || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 60) || "page";
+  }
+
+  function deriveAltText(img) {
+    // Filename as a last resort: some real signal beats an empty string,
+    // and the manual list always says a human should rewrite it.
+    try {
+      const src = new URL(img.getAttribute("src") || "", location.href).pathname;
+      const base = (src.split("/").pop() || "").replace(/\.[a-z0-9]+$/i, "");
+      return base.replace(/[-_]+/g, " ").replace(/\s+/g, " ").trim();
+    } catch (err) {
+      return "";
+    }
+  }
+
+  /**
+   * Apply every correction the extension can safely make to the LIVE DOM.
+   * Returns { applied, skipped, manual, scoreBefore, scoreAfter }.
+   */
+  function applyAllFixes() {
+    resetAutoFix();
+    const before = runLiveAudit();
+
+    // 1. Title tag -----------------------------------------------------
+    if (!document.title || !document.title.trim()) {
+      const h1 = document.querySelector("h1");
+      const candidate = (h1 && h1.textContent ? h1.textContent : "").replace(/\s+/g, " ").trim();
+      if (candidate) {
+        document.title = candidate.slice(0, 60);
+        recordAutoFix({
+          id: "title_added",
+          title: "Added <title> from the page H1",
+          detail: `"${document.title}" (edit to your final wording)`
+        });
+      } else {
+        recordSkipped("title_missing", "No title and no H1 to derive one from — write a title manually.");
+      }
+    }
+
+    // 2. Meta description ---------------------------------------------
+    const existingDesc = document.querySelector('meta[name="description"]');
+    if (!existingDesc || !(existingDesc.getAttribute("content") || "").trim()) {
+      const bodyText = (document.body ? document.body.innerText || "" : "").replace(/\s+/g, " ").trim();
+      const headingText = (document.querySelector("h1, h2") || {}).textContent || "";
+      const lead = bodyText.replace(/^\s+/, "").slice(0, 155).trim();
+      const candidate = (lead || headingText.replace(/\s+/g, " ").trim()).slice(0, 155);
+      if (candidate) {
+        const el = ensureMetaByName("description");
+        el.setAttribute("content", candidate);
+        recordAutoFix({
+          id: "desc_added",
+          title: "Added meta description from the opening paragraph",
+          detail: `"${candidate}…" (a human should polish the hook)`
+        });
+      } else {
+        recordSkipped("desc_missing", "Page has no text to derive a description from — write one manually.");
+      }
+    }
+
+    // 3. Canonical -----------------------------------------------------
+    if (!document.querySelector('link[rel="canonical"]') && location.protocol.startsWith("http")) {
+      const el = ensureCanonical();
+      el.setAttribute("href", location.href.split("#")[0]);
+      recordAutoFix({
+        id: "canonical_added",
+        title: "Added self-referencing canonical",
+        detail: location.href.split("#")[0]
+      });
+    }
+
+    // 4. Language -------------------------------------------------------
+    if (!(document.documentElement.getAttribute("lang") || "").trim()) {
+      const nav = ((navigator.language || "en") + "").toLowerCase();
+      document.documentElement.setAttribute("lang", nav);
+      recordAutoFix({
+        id: "lang_added",
+        title: "Declared page language on <html>",
+        detail: `lang="${nav}" (from your browser language — correct it if the page targets another locale)`
+      });
+    }
+
+    // 5. Viewport -------------------------------------------------------
+    if (!document.querySelector('meta[name="viewport" i]')) {
+      const el = document.createElement("meta");
+      el.setAttribute("name", "viewport");
+      el.setAttribute("content", "width=device-width, initial-scale=1");
+      ensureHead().appendChild(el);
+      recordAutoFix({
+        id: "viewport_added",
+        title: "Added responsive viewport meta",
+        detail: 'content="width=device-width, initial-scale=1"'
+      });
+    }
+
+    // 6. Charset ---------------------------------------------------------
+    if (!document.querySelector("meta[charset]")) {
+      const el = document.createElement("meta");
+      el.setAttribute("charset", "utf-8");
+      ensureHead().insertBefore(el, ensureHead().firstChild);
+      recordAutoFix({
+        id: "charset_added",
+        title: "Added <meta charset=\"utf-8\">",
+        detail: "Prevents mojibake on non-ASCII text"
+      });
+    }
+
+    // 7. Robots meta (only strips noindex — never invents directives) ------
+    const robotsEl = document.querySelector('meta[name="robots" i]');
+    if (robotsEl) {
+      const content = (robotsEl.getAttribute("content") || "").trim();
+      const cleaned = content
+        .split(",")
+        .map((d) => d.trim())
+        .filter((d) => !/^(noindex|none)$/i.test(d))
+        .join(", ");
+      if (cleaned !== content) {
+        robotsEl.setAttribute("content", cleaned);
+        recordAutoFix({
+          id: "noindex_removed",
+          title: "Removed noindex directive",
+          detail: `robots meta changed "${content}" → "${cleaned || '(empty)'}"`
+        });
+      }
+    }
+
+    // 8. Heading hierarchy ----------------------------------------------
+    const extraH1s = Array.from(document.querySelectorAll("h1")).slice(1);
+    extraH1s.forEach((el, idx) => {
+      const tag = document.createElement("h2");
+      while (el.firstChild) tag.appendChild(el.firstChild);
+      Array.from(el.attributes).forEach((attr) => {
+        if (attr.name !== "class" && attr.name !== "id") tag.setAttribute(attr.name, attr.value);
+      });
+      if (el.className) tag.setAttribute("class", el.className);
+      el.parentNode.replaceChild(tag, el);
+      recordAutoFix({
+        id: `h1_demoted_${idx}`,
+        title: "Demoted duplicate <h1> to <h2>",
+        detail: `"${(tag.textContent || "").replace(/\s+/g, " ").trim().slice(0, 50)}"`
+      });
+    });
+
+    // 9. Image alt text (visible content images only — same filter as audit)
+    let altFixed = 0;
+    Array.from(document.querySelectorAll("img")).forEach((img) => {
+      if (!img.isConnected) return;
+      const style = window.getComputedStyle(img);
+      if (style.display === "none" || style.visibility === "hidden" || parseFloat(style.opacity || "1") === 0) return;
+      if (img.offsetParent === null && style.position !== "fixed") return;
+      const rect = img.getBoundingClientRect();
+      if (rect.width < 24 || rect.height < 24) return;
+      if (img.getAttribute("role") === "presentation" || img.getAttribute("role") === "none" || img.getAttribute("aria-hidden") === "true") return;
+      if ((img.getAttribute("aria-label") || "").trim() || img.getAttribute("aria-labelledby")) return;
+      if (img.hasAttribute("alt") && (img.getAttribute("alt") || "").trim()) return;
+
+      const guess = deriveAltText(img);
+      if (guess) {
+        img.setAttribute("alt", guess);
+        altFixed += 1;
+      } else if (img.hasAttribute("alt")) {
+        img.setAttribute("alt", "");
+        altFixed += 1;
+      } else {
+        AUTO_FIX.manual.push({
+          id: "img_alt_manual",
+          title: "Image needs a written description",
+          detail: getElementPath(img)
+        });
+      }
+    });
+    if (altFixed > 0) {
+      recordAutoFix({
+        id: "alt_added",
+        title: `Filled alt text on ${altFixed} image${altFixed === 1 ? "" : "s"}`,
+        detail: "Derived from filenames — rewrite the important ones in the source."
+      });
+    }
+
+    // 10. Link rel/target hygiene ---------------------------------------
+    let noopenerFixed = 0;
+    Array.from(document.querySelectorAll('a[href]')).forEach((a) => {
+      if ((a.getAttribute("target") || "").toLowerCase() !== "_blank") return;
+      const rel = (a.getAttribute("rel") || "").toLowerCase();
+      if (rel.includes("noopener") || rel.includes("noreferrer")) return;
+      a.setAttribute("rel", (a.getAttribute("rel") ? a.getAttribute("rel") + " " : "") + "noopener");
+      noopenerFixed += 1;
+    });
+    if (noopenerFixed > 0) {
+      recordAutoFix({
+        id: "noopener_added",
+        title: `Added rel="noopener" to ${noopenerFixed} link${noopenerFixed === 1 ? "" : "s"}`,
+        detail: 'Closes the window.opener hole on target="_blank" links'
+      });
+    }
+
+    // 11. Meta refresh -- flagged, never removed (it might BE the routing)
+    const refreshMeta = document.querySelector('meta[http-equiv="refresh" i]');
+    if (refreshMeta) {
+      AUTO_FIX.manual.push({
+        id: "meta_refresh_manual",
+        title: "Meta refresh redirects this page",
+        detail: "Replace with a server-side 301; the extension will not remove routing it does not own."
+      });
+    }
+
+    const after = runLiveAudit();
+    lastFixResult = {
+      applied: AUTO_FIX.applied.slice(),
+      skipped: AUTO_FIX.skipped.slice(),
+      manual: AUTO_FIX.manual.slice(),
+      scoreBefore: before.score,
+      scoreAfter: after.score
+    };
+    return lastFixResult;
+  }
+
+  /**
+   * Serialize the ORIGINAL HTML with head-level corrections folded in.
+   * The live DOM is never serialized: at this point it contains the pill,
+   * drawer, defect boxes and any framework-rendered nodes, none of which
+   * belong in a file the user will deploy. Body content ships as-authored.
+   */
+  function generateCorrectedHtml() {
+    // Serialize a CLEAN copy of the page: the live DOM carries the pill,
+    // drawer and defect boxes, none of which belong in a deployable file.
+    const clone = document.documentElement.cloneNode(true);
+    clone.querySelectorAll('[id^="rankace-"], [class*="rankace-"]').forEach((el) => el.remove());
+
+    // A downloaded HTML snapshot is opened from file:// (or a blob URL), so
+    // root-relative app assets such as Next.js's /_next/static/*.js and images
+    // would otherwise resolve against the local file instead of the page's
+    // origin. Preserve the source base for assets that were not inlined above.
+    const exportHead = clone.querySelector("head");
+    if (exportHead) {
+      try {
+        let sourceBase = new URL(document.baseURI);
+        if (!/^https?:$/.test(sourceBase.protocol) && location.origin && location.origin !== "null") {
+          sourceBase = new URL("/", location.origin);
+        }
+        if (/^https?:$/.test(sourceBase.protocol)) {
+          sourceBase.hash = "";
+          let baseElement = exportHead.querySelector("base");
+          if (!baseElement) {
+            baseElement = document.createElement("base");
+            exportHead.insertBefore(baseElement, exportHead.firstChild);
+          }
+          baseElement.setAttribute("href", sourceBase.href);
+        }
+      } catch (err) {
+        // Keep the HTML export available for documents with opaque/no origin;
+        // they have no external page root to preserve.
+      }
+    }
+
+    // Inline stylesheets the page is allowed to read. A downloaded snapshot
+    // must not depend on a development server still being online just to keep
+    // its layout; CSSOM access is same-origin by design, while cross-origin
+    // sheets stay linked below and are resolved through the preserved base.
+    const originalStyleLinks = Array.from(document.querySelectorAll('link[rel~="stylesheet"]'));
+    const clonedStyleLinks = Array.from(clone.querySelectorAll('link[rel~="stylesheet"]'));
+    Array.from(document.styleSheets).forEach((sheet) => {
+      const owner = sheet.ownerNode;
+      if (!owner || owner.tagName !== "LINK" || sheet.disabled) return;
+      const index = originalStyleLinks.indexOf(owner);
+      const clonedLink = index >= 0 ? clonedStyleLinks[index] : null;
+      if (!clonedLink || clonedLink.hasAttribute("disabled")) return;
+
+      try {
+        const rules = Array.from(sheet.cssRules);
+        if (rules.length === 0) return;
+        const stylesheetUrl = sheet.href || owner.href || document.baseURI;
+        const cssText = rules
+          .map((rule) => rule.cssText)
+          .join("\n")
+          .replace(/url\(\s*(?:(['\"])(.*?)\1|([^)]*?))\s*\)/gi, (match, quote, quoted, unquoted) => {
+            const value = (quoted ?? unquoted ?? "").trim();
+            if (!value || /^[a-z][a-z0-9+.-]*:/i.test(value) || value.startsWith("#")) return match;
+            try {
+              const absolute = new URL(value, stylesheetUrl).href.replace(/[\\\"\n\r]/g, "\\$&");
+              return `url(\"${absolute}\")`;
+            } catch (err) {
+              return match;
+            }
+          })
+          .replace(/<\/style/gi, "<\\/style");
+        const inlineStyle = document.createElement("style");
+        if (clonedLink.media) inlineStyle.media = clonedLink.media;
+        if (clonedLink.nonce) inlineStyle.nonce = clonedLink.nonce;
+        inlineStyle.textContent = cssText;
+        clonedLink.replaceWith(inlineStyle);
+      } catch (err) {
+        // CSSOM blocks cross-origin sheets; keep the original link so it can
+        // still load from its absolute URL when the source site is available.
+      }
+    });
+
+    const fixes = [];
+
+    // Body-level corrections ride along in the export too, so the file is
+    // fully corrected even if the user never pressed "Fix all" first.
+    let demoted = 0;
+    Array.from(clone.querySelectorAll("h1")).forEach((el, idx) => {
+      if (idx === 0) return;
+      const tag = document.createElement("h2");
+      while (el.firstChild) tag.appendChild(el.firstChild);
+      if (el.className) tag.setAttribute("class", el.className);
+      if (el.parentNode) el.parentNode.replaceChild(tag, el);
+      demoted += 1;
+    });
+    if (demoted) fixes.push(`Demoted ${demoted} duplicate <h1> to <h2>`);
+
+    let altFilled = 0;
+    Array.from(clone.querySelectorAll("img")).forEach((img) => {
+      if (img.getAttribute("role") === "presentation" || img.getAttribute("role") === "none" || img.getAttribute("aria-hidden") === "true") return;
+      if (img.hasAttribute("alt") && (img.getAttribute("alt") || "").trim()) return;
+      const guess = deriveAltText(img);
+      if (guess || img.hasAttribute("alt")) {
+        img.setAttribute("alt", guess);
+        altFilled += 1;
+      }
+    });
+    if (altFilled) fixes.push(`Filled alt text on ${altFilled} image${altFilled === 1 ? "" : "s"}`);
+
+    let noopener = 0;
+    Array.from(clone.querySelectorAll('a[target="_blank"]')).forEach((a) => {
+      const rel = (a.getAttribute("rel") || "").toLowerCase();
+      if (rel.includes("noopener") || rel.includes("noreferrer")) return;
+      a.setAttribute("rel", (a.getAttribute("rel") ? a.getAttribute("rel") + " " : "") + "noopener");
+      noopener += 1;
+    });
+    if (noopener) fixes.push(`Added rel="noopener" to ${noopener} link${noopener === 1 ? "" : "s"}`);
+
+    const src = clone.outerHTML;
+    const headMatch = src.match(/<head[^>]*>[\s\S]*?<\/head>/i);
+    if (!headMatch) return { html: null, note: "No <head> found in document" };
+
+    let head = headMatch[0];
+    const originalHead = head;
+
+    // Every value below is inserted via callback replacements: a plain
+    // string replacement would interpret $& / $' sequences that happen to
+    // appear in page content and corrupt the exported markup.
+    const pushMeta = (name, content) => {
+      head = head.replace(
+        /(<\/head>)/i,
+        (m) => `  <meta name="${name}" content="${escapeAttr(content)}">\n${m}`
+      );
+    };
+    const pushLink = (rel, href) => {
+      head = head.replace(
+        /(<\/head>)/i,
+        (m) => `  <link rel="${rel}" href="${escapeAttr(href)}">\n${m}`
+      );
+    };
+    const headHas = (re) => re.test(head);
+    // Presence is decided on the CLONE'S DOM, never by regexing the head
+    // string: a <script> in the page's head (or our own inlined source in
+    // test harnesses) can contain literal "<title>…</title>" or
+    // name="viewport" text and falsely mark the tag as already present.
+    const cloneHas = (sel) => !!clone.querySelector(sel);
+
+    // title (derive from the H1 when the page has none — same as the live fix)
+    const title = (((clone.querySelector("head title") || {}).textContent) || "").trim() ||
+      ((clone.querySelector("h1") || {}).textContent || "").replace(/\s+/g, " ").trim().slice(0, 60);
+    if (title && !cloneHas("head title")) {
+      head = head.replace(/(<\/head>)/i, (m) => `  <title>${escapeHTML(title)}</title>\n${m}`);
+      fixes.push("Added <title>");
+    }
+
+    // meta description (derive from the opening paragraph when missing).
+    // Derived from the CLEAN clone, minus scripts/styles: reading the live
+    // body.innerText used to pull the pill/drawer labels ("⚡ Rankace 0 19
+    // Fixes") into the exported meta tag.
+    let desc = (((clone.querySelector('meta[name="description"]') || {}).content) || "").trim();
+    if (!desc) {
+      const probe = clone.cloneNode(true);
+      probe.querySelectorAll("script,style,noscript").forEach((el) => el.remove());
+      desc = ((probe.querySelector("body") || {}).textContent || "")
+        .replace(/\s+/g, " ").trim().slice(0, 155);
+    }
+    if (desc && !cloneHas('meta[name="description"]')) {
+      pushMeta("description", desc);
+      fixes.push("Added meta description");
+    }
+
+    // viewport
+    if (!cloneHas('meta[name="viewport"]')) {
+      pushMeta("viewport", "width=device-width, initial-scale=1");
+      fixes.push("Added viewport meta");
+    }
+
+    // charset
+    if (!cloneHas("meta[charset]")) {
+      head = head.replace(/(<\/head>)/i, '  <meta charset="utf-8">\n$1');
+      fixes.push("Added charset");
+    }    // canonical
+    if (!cloneHas('link[rel="canonical"]') && location.protocol.startsWith("http")) {
+      pushLink("canonical", location.href.split("#")[0]);
+      fixes.push("Added canonical");
+    }
+
+    // robots: strip noindex only
+    const robotsMetaEl = clone.querySelector('meta[name="robots"]');
+    if (robotsMetaEl) {
+      const content = (robotsMetaEl.getAttribute("content") || "").trim();
+      const cleaned = content.split(",").map((d) => d.trim()).filter((d) => !/^(noindex|none)$/i.test(d)).join(",");
+      if (cleaned !== content) {
+        const escapedContent = escapeAttr(content);
+        if (head.includes(`content="${escapedContent}"`)) {
+          head = head.replace(`content="${escapedContent}"`, () => `content="${escapeAttr(cleaned)}"`);
+          fixes.push("Removed noindex");
+        }
+      }
+    }
+
+    // lang on <html> is applied to the FINAL string below: the <html> tag
+    // sits outside the <head> match, so replacing it in `head` would
+    // silently report a fix that never happened.
+
+    const headChanged = head !== originalHead;
+    let html = headChanged ? src.replace(originalHead, () => head) : src;
+
+    // documentElement.outerHTML starts at <html>: without this the
+    // downloaded file lost its doctype and opened in quirks mode.
+    if (!/^\s*<!doctype/i.test(html)) html = "<!doctype html>\n" + html;
+
+    // DOM check (not a regex over the serialized string): inlined script
+    // text like `<html${attrs} lang=...` used to satisfy this test and
+    // silently skip the fix.
+    if (!clone.getAttribute("lang")) {
+      const langAttr = escapeAttr((navigator.language || "en").toLowerCase());
+      html = html.replace(/<html([^>]*)>/i, (m, attrs) => `<html${attrs} lang="${langAttr}">`);
+      fixes.push("Declared <html lang>");
+    }
+
+    // Always hand back the file. If the live page was already corrected by
+    // Auto-Fix, the clone contains those fixes, so there is nothing NEW to
+    // fold in -- but the user still asked for the corrected file, and
+    // refusing here (the old behaviour) left the download button dead
+    // exactly in the most common flow: Fix all -> Download.
+    if (!headChanged && fixes.length === 0) {
+      fixes.push("Page already corrected in this tab — exporting the fixed version");
+    }
+    return { html, fixes: fixes.filter(Boolean) };
+  }
+
+  function downloadCorrectedHtml() {
+    const { html, fixes, note } = generateCorrectedHtml();
+    if (!html) {
+      return { ok: false, note: note || "Could not build a corrected file" };
+    }
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${slugify(document.title || location.pathname)}-rankace-fixed.html`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    return { ok: true, fixes: fixes || [], filename: a.download, bytes: html.length };
   }
 
   // -------------------------------------------------------------
@@ -882,6 +2021,49 @@
     if (request.action === "TOGGLE_FLOATING_ASSISTANT") {
       toggleInPageDrawer();
       sendResponse({ success: true });
+      return true;
+    }
+
+    if (request.action === "HIGHLIGHT_NOFOLLOW") {
+      clearAllHighlights();
+      const nofollowIssues = Array.from(document.querySelectorAll('a[href]'))
+        .filter((a) => ((a.getAttribute("rel") || "").toLowerCase().includes("nofollow")))
+        .map((a, idx) => ({
+          id: `nofollow_${idx}`,
+          category: "Links",
+          severity: "info",
+          title: "Nofollow link",
+          message: `Link to ${(a.getAttribute("href") || "").slice(0, 80)} carries rel=nofollow, so no link equity passes.`,
+          recommendation: "Remove nofollow if this is an endorsement you want counted.",
+          targetSelector: getElementPath(a)
+        }));
+      let drawn = 0;
+      nofollowIssues.forEach((issue) => {
+        if (issue.targetSelector && createBoundingBox(document.querySelector(issue.targetSelector), issue)) drawn += 1;
+      });
+      isInspectionEnabled = true;
+      sendResponse({ highlightedCount: drawn, total: nofollowIssues.length });
+      return true;
+    }
+
+    if (request.action === "APPLY_ALL_FIXES") {
+      const result = applyAllFixes();
+      if (drawerOpen) {
+        renderDrawerContent(runLiveAudit(), result);
+        highlightAllIssuesOnPage(cachedAuditData ? cachedAuditData.issues : []);
+      }
+      sendResponse(result);
+      return true;
+    }
+
+    if (request.action === "DOWNLOAD_CORRECTED_HTML") {
+      sendResponse(downloadCorrectedHtml());
+      return true;
+    }
+
+    if (request.action === "GENERATE_CORRECTED_HTML") {
+      const { html, fixes, note } = generateCorrectedHtml();
+      sendResponse(html ? { ok: true, html, fixes: fixes || [] } : { ok: false, note: note || "No changes needed" });
       return true;
     }
   });

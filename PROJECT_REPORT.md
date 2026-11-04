@@ -40,7 +40,7 @@ not predict rankings, and it labels every modelled estimate as an estimate.
 | Backend | FastAPI, SQLAlchemy, scikit-learn, Scrapling, httpx | ~1,600 |
 | Reports | fpdf2 | — |
 
-**Routes:** `/` (landing) · `/login` · `/dashboard` · `/projects/[id]` · `/showcase`
+**Routes:** `/` (landing) · `/login` · `/dashboard` · `/projects/[id]` · `/extension` · `/showcase`
 
 ---
 
@@ -124,7 +124,33 @@ Log a title/description hypothesis, record a baseline CTR, then track it against
 the shipped variant. Rankace **records your measurements** — it does not pretend
 to run tests inside Google.
 
-### 3.9 PDF Export
+### 3.9 AI-Search Readiness Audit
+Answers a different question from the crawl: can an answer engine read this
+site at all? Three live artefacts (`robots.txt`, `sitemap.xml`, `llms.txt`) are
+fetched through the same SSRF-validated redirect walk as the crawler, and two
+signals (JSON-LD coverage, server-rendered text) come from the stored crawl.
+
+- Answer-index crawlers (`OAI-SearchBot`, `ClaudeBot`, `PerplexityBot`),
+live-fetch agents (`ChatGPT-User`, `Claude-User`) and training crawlers
+(`GPTBot`, `Google-Extended`, `CCBot`) are reported **separately**. Blocking a
+training crawler is a licensing decision and does not remove a site from live
+answers; conflating the two is the most common error in AI-SEO advice.
+- No `robots.txt` is allow-all by protocol, not "blocked".
+- Advisory gaps (`llms.txt`, missing social metadata) cannot fail the score.
+- Signals are weighted, the result is scored 0–100, and every signal carries a
+concrete next action. Results are cached for ten minutes and invalidated by a
+crawl.
+
+### 3.10 Live Browser Extension
+A Manifest V3 side panel and in-page drawer audit the page the user is on:
+indexability (meta robots / googlebot), canonical safety, headings, image alt
+and dimensions, link profile (internal/external/nofollow/sponsored/ugc,
+`target=_blank` without `rel=noopener`), JSON-LD types and validity, Open
+Graph / Twitter coverage, viewport, language, charset, hreflang, mixed content
+and thin content — plus a SERP preview, page-facts grid, heading outline and a
+copyable text report. Defective elements get live bounding boxes.
+
+### 3.11 PDF Export
 Generates a formatted PDF report of scores, issues, recommendations, gaps and
 keywords.
 
@@ -240,6 +266,49 @@ Every item below was **measured**, not inferred from reading code.
     detection — the crawler stored only the joined H1 *text*, so counting was
     impossible.
 
+### Data integrity & truthfulness
+11. **Deleting a project orphaned every child row.** Pages, keywords,
+    competitors, gaps, recommendations, experiments, scores and sessions all
+    survived. SQLite reuses the highest id, so the next project created
+    inherited them — measured: a fresh project showed a competitor from a
+    deleted one, which also reactivated the Content Gap axis. Child rows are
+    now deleted explicitly.
+12. **A failed crawl committed its half-written batch.** The error handler set
+    the session status and committed, which flushed the pages and issues
+    already added. It now rolls back first, then marks the session.
+13. **Timestamps were six hours off.** SQLite returns naive datetimes, FastAPI
+    serialised them without an offset, and the browser read them as local time,
+    so a just-finished audit displayed "6h ago". Serialised with an explicit
+    UTC offset at the API boundary.
+14. **The dashboard showed three invented KPIs** (88/100 health, 94% "intent
+    coverage", an "Online" growth lab). Replaced by a real aggregates endpoint;
+    no-data now renders as "—" instead of a failing 0.
+15. **Content Gap scored a free 100/100 with no competitors configured,** adding
+    15 unearned health points. The axis is now omitted and the remaining
+    weights renormalised until a competitor exists.
+16. **Keyword extraction produced word fragments.** The regex had no word
+    boundaries, so "for illustrative purposes" yielded "oring purposes" and
+    shipped it as a keyword opportunity. Rewritten to tokenise whole words and
+    build adjacent 2–3-word phrases.
+17. **The intent classifier reported 100% confidence for its fallback guess.**
+    A query with no signals defaulted to a class and scored the default as a
+    unanimous vote. Fallback confidence is now capped at 0.35.
+18. **The UI claimed work that had not happened.** Creating a project promised
+    "baseline crawl is being initialised" although nothing started a crawl; the
+    experiment form was pre-filled with 2.5% / 3.8% CTRs, so submitting it
+    recorded a fabricated measurement and a 1.3-point "lift"; and the cockpit
+    tab was lost on refresh. All three corrected, and the tab is deep-linkable.
+19. **The theme control checked two radios at once** (Dark and System) while
+    following the OS preference. Exactly one is now selected.
+20. **The crawler's SSRF defence was bypassable by redirect.** Both fetch
+    engines followed redirects blindly after the initial URL had been
+    validated, so a public host could answer `302 Location: http://127.0.0.1/`.
+    Redirects are now resolved one hop at a time, each re-validated.
+21. **Orphan detection tested out-links, not in-links.** A well-linked leaf
+    with no navigation of its own was reported as unreachable. In-link counts
+    are computed from the crawl graph, persisted, and legacy rows read "not
+    measured" rather than a false zero.
+
 ---
 
 ## 7. Verification
@@ -247,11 +316,13 @@ Every item below was **measured**, not inferred from reading code.
 | Gate | Result |
 |---|---|
 | `tsc --noEmit` | clean |
+| `next build` | 9 routes built |
 | `cn` regression suite | 8/8 |
 | Scoring regression suite | 21/21 |
-| Backend `pytest` | 23/23 |
-| Theme audit (5 routes × 2 themes) | 0 failures |
-| Contrast audit (115 elements × 2 themes) | 0 failures |
+| Backend `pytest` | 29/29 |
+| Extension audit engine (live browser, 5 fixtures) | facts + checks verified; clean 100, duplicate H1 90, missing-core-tags 28, broken page 0 |
+| Extension Playwright harness (`extension/test-audit.js`) | not run here — node Playwright is not installed in this workspace; the same fixtures were driven manually in a real browser |
+| Theme radios | exactly one checked per group (was two) |
 
 ---
 
@@ -263,10 +334,12 @@ Honest list of what is **not** built:
 - **Rank tracking over time** — no historical position series
 - **Crawl-over-crawl diffing** — no change detection between runs
 - **Backlink analysis** — off-page authority is not measured
-- **AI/LLM visibility tracking** — brand mentions in ChatGPT/Gemini/Claude
+- **AI answer tracking** — readiness is audited (robots, llms.txt, schema,
+  rendering); whether ChatGPT or Perplexity actually cites the brand is not
+  measured, because that needs live prompt sampling
 - **Outbound link quality analysis** — links are crawled, not assessed
 - **Pillar-cluster content calendar** — clustering exists, planning does not
-- **llms.txt / AI-crawler log analysis**
+- **AI-crawler log analysis** — no server-log ingestion
 
 ---
 

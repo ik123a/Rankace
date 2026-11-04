@@ -40,9 +40,13 @@ lattice sphere with a band of crawl-nodes travelling along its path and opportun
 drifting in and out. It is Rankace's own idea: a crawl traversing a web, rendered as a lit
 volumetric form. Traced in technique to Cerebrium's force-field globe; not traced in content.
 
-**Theme lock: dark only.** Rankace is an operational cockpit, not a consumer marketing page, so
-there is no light mode and no `prefers-color-scheme` branch. One theme, no section ever inverts.
-Rationale is recorded in Section 8.
+**Two themes, one token layer.** Dark is the baseline and the design reference; a light theme is
+shipped because the app is used for long audit sessions in daylight offices. Both themes resolve
+every colour through the same `var()` tokens, so there are zero `dark:` utilities and no component
+knows which theme is active. The switch is `:root[data-theme]` on `<html>`, resolved before first
+paint by an inline script (no flash), with Light / Dark / System as a three-way control. Only colour
+inverts — spacing, radius, elevation recipes, type and motion are theme-invariant. Section 8 records
+the contrast measurements for both themes.
 
 ---
 
@@ -400,7 +404,6 @@ four-layer recipe for anything that must read as a lit, dimensional material. No
 
 | Item | Location | Why accepted | Exit |
 |------|----------|--------------|------|
-| Dark theme only, no light mode | Whole app | Operational cockpit product; a second theme doubles token surface and QA cost for no user benefit | Revisit only if a public marketing-only light theme is ever required |
 | GSAP adds ~117 KB uncompressed to the landing route | `/` | Measured: two chunks, 65.8 KB + 50.8 KB. Required for the pinned chapter the user selected; route-level code-split keeps it off `/login`, `/dashboard` and `/projects/*` | Drop to CSS `animation-timeline: view()` if the landing bundle budget is breached |
 | Hero canvas runs continuously while visible | `/` | The field is the signature moment; it pauses off-screen and under reduced motion. Gradients are cached per-resize and the animation loop starts only after a paint is committed, with a static frame drawn first so there is no flash | Already mitigated |
 | Mobile `/` performance 85–92 (median 92) | `/` | Lighthouse's simulated 4× CPU / 1.6 Mbps throttle inflates one ~308 ms pre-paint main-thread task into ~1.2 s of render delay. Unthrottled real Chrome paints the LCP element at 432 ms with FCP also 432 ms. Run-to-run spread is 85–92 | Reduce the pre-hydration task (route-split the hero field), or accept: real-device LCP is already well inside the 2.5 s budget |

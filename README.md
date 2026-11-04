@@ -48,6 +48,14 @@ Instead of claiming to know Google's secret formula, Rankace computes **Search V
   - Framework for SEO experimentation: Log hypotheses for title tags, meta descriptions, or headings.
   - Track baseline click-through rates (CTR) vs variant CTR over time without making deceptive claims of automated Google live split-testing.
 
+- **AI-Search Readiness Audit**:
+  - Checks the signals that decide whether answer engines can read a site: the `robots.txt` policy for index crawlers (`OAI-SearchBot`, `ClaudeBot`, `PerplexityBot`), live-browsing agents and training crawlers reported **separately**, `sitemap.xml` discovery, `llms.txt`, JSON-LD coverage and server-rendered text.
+  - Scores the result 0–100 and explains every signal with the exact advice to act on. Unmeasured axes are marked unmeasured, never scored as perfect.
+
+- **Live Browser Extension**:
+  - Manifest V3 side panel + in-page drawer that audits any open page: indexability, canonical, headings, images, link profile, structured data, social metadata, SERP preview and technical hygiene.
+  - Draws bounding boxes over defective elements and copies a full text report. Source in `extension/`, one-click download from `/extension`.
+
 - **Executive Report & PDF Export**:
   - Generates comprehensive on-screen reports and instant one-click downloadable PDF audit reports powered by `fpdf2`.
 
@@ -115,20 +123,29 @@ D:\Projects\Rankace
 │   └── requirements.txt
 ├── frontend/
 │   ├── app/
-│   │   ├── dashboard/        # Main project dashboard
+│   │   ├── dashboard/        # Project roster, real aggregate metrics
+│   │   │   └── page.tsx
+│   │   ├── extension/        # Extension download & capability page
 │   │   │   └── page.tsx
 │   │   ├── login/            # Authentication & registration
 │   │   │   └── page.tsx
-│   │   ├── projects/[id]/    # Flagship 7-tab project intelligence suite
+│   │   ├── projects/[id]/    # 8-tab project intelligence suite
 │   │   │   └── page.tsx
-│   │   ├── globals.css
+│   │   ├── globals.css       # Design tokens, both themes
 │   │   ├── layout.tsx
 │   │   └── page.tsx          # Marketing landing page & live NLP intent sandbox
-│   ├── lib/                  # API client, token storage & blob downloader
-│   │   └── api.ts
+│   ├── components/           # Design-system primitives, visuals, theme provider
+│   ├── lib/                  # API client, token storage, formatting helpers
 │   ├── Dockerfile
 │   ├── package.json
 │   └── tailwind.config.js
+├── extension/                # Manifest V3 page inspector (source of truth)
+│   ├── content.js            # Live audit engine, facts layer, bounding boxes
+│   ├── sidepanel.html/js     # Side panel: score, SERP preview, page details
+│   ├── overlay.css           # Drawer, boxes, tooltips, facts grid
+│   ├── manifest.json
+│   └── test-audit.js         # Playwright harness for the audit engine
+├── scripts/build-extension.mjs  # Rebuilds the served copy + verifiable zip
 ├── docker-compose.yml
 ├── .env.example
 ├── LICENSE
@@ -207,11 +224,12 @@ Rankace is designed to be immediately demonstrable without requiring external pa
 
 ## 7. Running Tests
 
-Run the full automated test suite (11 unit and integration tests):
+Run the full automated test suite (29 unit and integration tests) plus the scoring regression suite:
 
 ```bash
 cd backend
 python -m pytest tests -v
+python scripts/scoring_regression.py
 ```
 
 Tests cover:
@@ -226,6 +244,8 @@ Tests cover:
 9. API authentication (Register, Login, Me)
 10. API project lifecycle (Create, Read, Archive, Export PDF, Delete)
 11. Public intent classification sandbox endpoint
+12. AI-readiness signals: blocked vs allowed answer crawlers, training-crawler separation, allow-all without robots.txt, partial-signal scoring, client-rendered shells
+13. In-link counting: one endorsement per source page, true orphan detection
 
 ---
 

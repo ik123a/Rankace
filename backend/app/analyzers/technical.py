@@ -65,6 +65,17 @@ def analyze_technical(pages: list) -> tuple[list[dict], dict]:
         if metas[p.meta_description] > 1 and p.meta_description:
             add(p.url, "duplicate_meta", "low", "Duplicate meta description across multiple pages.")
 
+        # ---- Client-rendered shell (Scrapling-inspired) -------------------
+        # The crawler has always flagged pages whose body is an empty JS mount
+        # point (`#__next`, `#root`, `#app`) and then discarded the flag. This
+        # is the single highest-impact rendering defect: the HTML a crawler and
+        # a social unfurler receive contains no content at all, so the page can
+        # be indexed as thin or not at all while looking perfect in a browser.
+        if getattr(p, "is_spa_shell", False):
+            add(p.url, "client_rendered_shell", "high",
+                "Body HTML is an empty JavaScript mount point (<30 words). Content only "
+                "appears after hydration; crawlers and unfurlers may see nothing.")
+
         # ---- Structured data (Module 2, Topic 17) --------------------------
         # The crawler has always extracted JSON-LD @type values and stored them
         # as `schema_types`, but nothing read the field: the data was collected

@@ -940,3 +940,218 @@
   background: rgba(124, 131, 138, 0.14);
   border: 1px solid rgba(124, 131, 138, 0.28);
 }
+
+/* ------------------------------------------------------------- */
+/* PAGE FACTS + SERP PREVIEW                                       */
+/*                                                                 */
+/* The side panel and the in-page drawer show the same facts, so   */
+/* the visual language is shared: one bordered panel, a monospace  */
+/* key/value grid, and a Google-shaped preview of how the page     */
+/* will appear in results. Scoped to the drawer so a host page's   */
+/* own .rankace-* lookalike cannot inherit these rules.            */
+/* ------------------------------------------------------------- */
+
+#rankace-inpage-drawer .rankace-serp {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 2px !important;
+  padding: 9px 11px !important;
+  background: var(--rk-surface-sunken) !important;
+  border: 1px solid var(--rk-border-subtle) !important;
+  border-radius: var(--rk-radius-sm) !important;
+}
+
+.rankace-serp-url {
+  overflow: hidden !important;
+  color: #9aa0a6 !important;
+  font-family: var(--rk-font-ui) !important;
+  font-size: 10px !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.rankace-serp-title {
+  overflow: hidden !important;
+  color: #8ab4f8 !important;
+  font-family: var(--rk-font-ui) !important;
+  font-size: 14px !important;
+  line-height: 1.35 !important;
+  text-overflow: ellipsis !important;
+  display: -webkit-box !important;
+  -webkit-line-clamp: 2 !important;
+  -webkit-box-orient: vertical !important;
+}
+
+.rankace-serp-desc {
+  color: var(--rk-text-secondary) !important;
+  font-family: var(--rk-font-ui) !important;
+  font-size: 11px !important;
+  line-height: 1.45 !important;
+  display: -webkit-box !important;
+  -webkit-line-clamp: 3 !important;
+  -webkit-box-orient: vertical !important;
+  overflow: hidden !important;
+}
+
+.rankace-facts-grid {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr !important;
+  gap: 6px !important;
+}
+
+.rankace-fact {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 1px !important;
+  min-width: 0 !important;
+  padding: 5px 8px !important;
+  background: var(--rk-surface-sunken) !important;
+  border: 1px solid var(--rk-border-subtle) !important;
+  border-radius: var(--rk-radius-sm) !important;
+}
+
+.rankace-fact-label {
+  color: var(--rk-text-tertiary) !important;
+  font-family: var(--rk-font-mono) !important;
+  font-size: 9px !important;
+  letter-spacing: 0.1em !important;
+  text-transform: uppercase !important;
+}
+
+.rankace-fact-value {
+  overflow: hidden !important;
+  color: var(--rk-text-primary) !important;
+  font-family: var(--rk-font-mono) !important;
+  font-size: 11px !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+/* ------------------------------------------------------------- */
+/* AUTO-FIX CARD                                                   */
+/* ------------------------------------------------------------- */
+
+.rankace-autofix-btn {
+  background: rgba(59, 130, 246, 0.16) !important;
+  border-color: rgba(59, 130, 246, 0.45) !important;
+  color: var(--rk-accent, #7ab8ff) !important;
+}
+
+.rankace-autofix-desc {
+  color: var(--rk-text-secondary) !important;
+  font-size: 12px !important;
+  line-height: 1.55 !important;
+}
+
+.rankace-autofix-summary {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 3px !important;
+}
+
+.rankace-autofix-line {
+  font-size: 11px !important;
+  font-weight: 600 !important;
+}
+
+.rankace-autofix-list {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 6px !important;
+  max-height: 220px !important;
+  overflow-y: auto !important;
+}
+
+.rankace-autofix-item {
+  display: flex !important;
+  align-items: flex-start !important;
+  gap: 8px !important;
+  padding: 7px 8px !important;
+  background: var(--rk-surface-sunken) !important;
+  border: 1px solid var(--rk-border-subtle) !important;
+  border-radius: var(--rk-radius-sm) !important;
+  animation: rankace-rise 0.28s var(--rk-ease, ease) both !important;
+}
+
+.rankace-autofix-item:nth-child(2) { animation-delay: 0.04s; }
+.rankace-autofix-item:nth-child(3) { animation-delay: 0.08s; }
+.rankace-autofix-item:nth-child(4) { animation-delay: 0.12s; }
+.rankace-autofix-item:nth-child(5) { animation-delay: 0.16s; }
+
+.rankace-autofix-check {
+  flex: 0 0 auto !important;
+  color: #2fbf71 !important;
+  font-size: 12px !important;
+  line-height: 1.3 !important;
+}
+
+.rankace-autofix-check.rankace-manual { color: #d9a441 !important; }
+
+.rankace-autofix-title {
+  color: var(--rk-text-primary) !important;
+  font-size: 11.5px !important;
+  font-weight: 600 !important;
+}
+
+.rankace-autofix-detail {
+  color: var(--rk-text-tertiary) !important;
+  font-size: 10px !important;
+  line-height: 1.45 !important;
+  word-break: break-word !important;
+}
+
+.rankace-autofix-note {
+  margin-top: 8px !important;
+  padding: 6px 8px !important;
+  background: rgba(217, 164, 65, 0.1) !important;
+  border: 1px solid rgba(217, 164, 65, 0.3) !important;
+  border-radius: var(--rk-radius-sm) !important;
+  color: var(--rk-text-secondary) !important;
+  font-size: 10.5px !important;
+  line-height: 1.5 !important;
+}
+
+.rankace-autofix-actions {
+  display: flex !important;
+  gap: 8px !important;
+  margin-top: 10px !important;
+}
+
+.rankace-autofix-actions .rankace-copy-btn {
+  flex: 1 1 auto !important;
+  justify-content: center !important;
+}
+
+.rankace-autofix-primary {
+  background: rgba(59, 130, 246, 0.2) !important;
+  border-color: rgba(59, 130, 246, 0.5) !important;
+  color: var(--rk-text-primary) !important;
+}
+
+/* ------------------------------------------------------------- */
+/* ENTRANCE MOTION                                                 */
+/* ------------------------------------------------------------- */
+
+@keyframes rankace-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+#rankace-inpage-drawer.rankace-open .rankace-drawer-header,
+#rankace-inpage-drawer.rankace-open .rankace-drawer-body > * {
+  animation: rankace-rise 0.32s var(--rk-ease, ease) both;
+}
+
+#rankace-inpage-drawer.rankace-open .rankace-drawer-body > *:nth-child(2) { animation-delay: 0.04s; }
+#rankace-inpage-drawer.rankace-open .rankace-drawer-body > *:nth-child(3) { animation-delay: 0.08s; }
+#rankace-inpage-drawer.rankace-open .rankace-drawer-body > *:nth-child(4) { animation-delay: 0.12s; }
+#rankace-inpage-drawer.rankace-open .rankace-drawer-body > *:nth-child(5) { animation-delay: 0.16s; }
+
+.rankace-issue-card {
+  animation: rankace-rise 0.26s var(--rk-ease, ease) both;
+}
+
+.rankace-issue-card:nth-child(2) { animation-delay: 0.04s; }
+.rankace-issue-card:nth-child(3) { animation-delay: 0.08s; }
+.rankace-issue-card:nth-child(4) { animation-delay: 0.12s; }
+.rankace-issue-card:nth-child(5) { animation-delay: 0.16s; }

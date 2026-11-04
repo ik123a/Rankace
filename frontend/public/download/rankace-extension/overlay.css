@@ -1,0 +1,1157 @@
+/* Rankace Live Inspector — Search Field design system
+   Injected into arbitrary pages. Two hard rules for this file:
+   1. Never declare tokens on :root. Custom properties inherit, so a :root block
+      would inject Rankace variables into every host page's cascade. Tokens are
+      scoped to Rankace-owned elements and prefixed --rk-.
+   2. Everything is !important. Host page CSS outranks extension CSS otherwise. */
+
+/* ------------------------------------------------------------- */
+/* TOKENS — scoped to Rankace-owned roots                          */
+/* ------------------------------------------------------------- */
+
+#rankace-inpage-drawer,
+#rankace-floating-pill,
+.rankace-defect-box,
+.rankace-defect-badge,
+.rankace-defect-tooltip,
+.rankace-defect-callout {
+  --rk-canvas: #08090a;
+  --rk-surface-1: #0e1011;
+  --rk-surface-2: #141718;
+  --rk-surface-sunken: #050606;
+  --rk-border-subtle: rgba(255, 255, 255, 0.06);
+  --rk-border-default: rgba(255, 255, 255, 0.11);
+  --rk-border-strong: rgba(255, 255, 255, 0.18);
+  --rk-text-primary: #f2f3f3;
+  --rk-text-secondary: #9ba1a6;
+  --rk-text-tertiary: #7c838a;
+  --rk-accent: #ff2e6b;
+  --rk-accent-hover: #ff5486;
+  --rk-accent-quiet: rgba(255, 46, 107, 0.12);
+  --rk-accent-line: rgba(255, 46, 107, 0.34);
+  --rk-accent-fill: #b81a4b;
+  --rk-accent-fill-hover: #ce2156;
+  --rk-danger-fill: #b3201f;
+  --rk-success: #2fbf71;
+  --rk-warning: #d9a441;
+  --rk-error: #e5484d;
+  --rk-info: #4c9aff;
+  --rk-font-ui: "Space Grotesk", "Segoe UI", sans-serif;
+  --rk-font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", monospace;
+  --rk-radius: 8px;
+  --rk-radius-sm: 5px;
+  --rk-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  font-family: var(--rk-font-ui) !important;
+}
+
+/* ------------------------------------------------------------- */
+/* DEFECT BOUNDING BOXES                                            */
+/* ------------------------------------------------------------- */
+
+.rankace-defect-box {
+  position: fixed !important;
+  pointer-events: none !important;
+  z-index: 2147483640 !important;
+  box-sizing: border-box !important;
+  border-radius: var(--rk-radius) !important;
+  font-family: var(--rk-font-ui) !important;
+  will-change: top, left, width, height !important;
+}
+
+/* Severity is carried by a corner notch shape as well as hue, so the signal
+   survives greyscale and colour-vision deficiency. */
+.rankace-defect-box.rankace-critical,
+.rankace-defect-box.rankace-warning,
+.rankace-defect-box.rankace-info {
+  background-color: rgba(255, 255, 255, 0.05) !important;
+  border-width: 2px !important;
+  border-style: solid !important;
+  color: var(--rk-info) !important;
+}
+
+.rankace-defect-box.rankace-critical {
+  border-color: var(--rk-error) !important;
+  box-shadow: 0 0 0 1px var(--rk-error), 0 0 14px rgba(229, 72, 77, 0.22) !important;
+  color: var(--rk-error) !important;
+}
+
+.rankace-defect-box.rankace-warning {
+  border-color: var(--rk-warning) !important;
+  box-shadow: 0 0 0 1px var(--rk-warning), 0 0 14px rgba(217, 164, 65, 0.22) !important;
+  color: var(--rk-warning) !important;
+}
+
+.rankace-defect-box.rankace-info {
+  border-color: var(--rk-info) !important;
+  box-shadow: 0 0 0 1px var(--rk-info), 0 0 14px rgba(76, 154, 255, 0.22) !important;
+}
+
+.rankace-defect-box.rankace-critical::before,
+.rankace-defect-box.rankace-warning::before,
+.rankace-defect-box.rankace-info::before {
+  content: "" !important;
+  position: absolute !important;
+  top: -1px !important;
+  left: -1px !important;
+  width: 0 !important;
+  height: 0 !important;
+  border-top-width: 12px !important;
+  border-top-style: solid !important;
+  border-right: 12px solid transparent !important;
+}
+
+.rankace-defect-box.rankace-critical::before { border-top-color: var(--rk-error) !important; }
+.rankace-defect-box.rankace-warning::before { border-top-color: var(--rk-warning) !important; }
+.rankace-defect-box.rankace-info::before { border-top-color: var(--rk-info) !important; }
+
+.rankace-defect-box::after {
+  content: "" !important;
+  position: absolute !important;
+  right: -1px !important;
+  bottom: -1px !important;
+  width: 9px !important;
+  height: 9px !important;
+  border-right: 2px solid currentColor !important;
+  border-bottom: 2px solid currentColor !important;
+  opacity: 0.45 !important;
+}
+
+/* ------------------------------------------------------------- */
+/* DOCKED BADGE                                                     */
+/* ------------------------------------------------------------- */
+
+.rankace-defect-badge {
+  position: absolute !important;
+  top: 6px !important;
+  left: 6px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  max-width: calc(100% - 12px) !important;
+  background: rgba(8, 9, 10, 0.94) !important;
+  border: 1px solid var(--rk-border-strong) !important;
+  border-radius: var(--rk-radius-sm) !important;
+  padding: 3px 7px !important;
+  color: var(--rk-text-primary) !important;
+  font-family: var(--rk-font-ui) !important;
+  font-size: 10px !important;
+  font-weight: 500 !important;
+  line-height: 1.35 !important;
+  letter-spacing: 0.01em !important;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.55) !important;
+  pointer-events: auto !important;
+  backdrop-filter: blur(8px) !important;
+  cursor: pointer !important;
+  user-select: none !important;
+  z-index: 2147483647 !important;
+}
+
+.rankace-defect-box.rankace-short .rankace-defect-badge {
+  top: 2px !important;
+  left: 4px !important;
+  padding: 2px 6px !important;
+  font-size: 9px !important;
+}
+
+.rankace-defect-badge:hover,
+.rankace-defect-badge:focus-within {
+  border-color: var(--rk-accent-line) !important;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.7), 0 0 0 1px var(--rk-accent-line) !important;
+}
+
+.rankace-badge-pill {
+  font-family: var(--rk-font-mono) !important;
+  border-radius: 3px !important;
+  padding: 1px 5px !important;
+  font-size: 9px !important;
+  font-weight: 500 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.14em !important;
+}
+
+.rankace-badge-critical { background: var(--rk-error) !important; color: #ffffff !important; }
+.rankace-badge-warning { background: var(--rk-warning) !important; color: #141718 !important; }
+.rankace-badge-info { background: var(--rk-info) !important; color: #050606 !important; }
+
+.rankace-badge-close {
+  cursor: pointer !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 15px !important;
+  height: 15px !important;
+  border-radius: 50% !important;
+  background: var(--rk-surface-2) !important;
+  color: var(--rk-text-secondary) !important;
+  margin-left: 2px !important;
+  border: 1px solid var(--rk-border-subtle) !important;
+  font-size: 11px !important;
+  line-height: 1 !important;
+  transition: background-color 0.15s var(--rk-ease), color 0.15s var(--rk-ease) !important;
+}
+
+.rankace-badge-close:hover {
+  background: var(--rk-danger-fill) !important;
+  color: var(--rk-text-primary) !important;
+  border-color: var(--rk-danger-fill) !important;
+}
+
+/* ------------------------------------------------------------- */
+/* HOVER TOOLTIP                                                    */
+/* ------------------------------------------------------------- */
+
+.rankace-defect-tooltip {
+  display: none !important;
+  position: absolute !important;
+  top: 100% !important;
+  left: 0 !important;
+  margin-top: 6px !important;
+  width: 250px !important;
+  max-width: 78vw !important;
+  background: var(--rk-surface-1) !important;
+  border: 1px solid var(--rk-border-default) !important;
+  border-radius: var(--rk-radius) !important;
+  padding: 9px 11px !important;
+  color: var(--rk-text-secondary) !important;
+  font-family: var(--rk-font-ui) !important;
+  font-size: 11px !important;
+  font-weight: 400 !important;
+  line-height: 1.5 !important;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.62) !important;
+  z-index: 2147483647 !important;
+  pointer-events: auto !important;
+  white-space: normal !important;
+  text-wrap: pretty !important;
+}
+
+.rankace-defect-tooltip strong {
+  display: block !important;
+  margin-bottom: 3px !important;
+  color: var(--rk-text-primary) !important;
+  font-weight: 600 !important;
+}
+
+.rankace-tooltip-fix {
+  margin-top: 5px !important;
+  padding-top: 5px !important;
+  border-top: 1px solid var(--rk-border-subtle) !important;
+  color: var(--rk-text-tertiary) !important;
+  font-size: 10px !important;
+  line-height: 1.45 !important;
+}
+
+.rankace-defect-badge:hover .rankace-defect-tooltip,
+.rankace-defect-badge:focus-within .rankace-defect-tooltip {
+  display: block !important;
+}
+
+.rankace-defect-callout {
+  position: absolute !important;
+  max-width: 240px !important;
+  background: var(--rk-surface-2) !important;
+  border: 1px solid var(--rk-border-default) !important;
+  border-left: 2px solid var(--rk-accent) !important;
+  border-radius: var(--rk-radius-sm) !important;
+  padding: 6px 9px !important;
+  color: var(--rk-text-secondary) !important;
+  font-family: var(--rk-font-ui) !important;
+  font-size: 11px !important;
+  line-height: 1.45 !important;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.55) !important;
+  z-index: 2147483647 !important;
+}
+
+/* ------------------------------------------------------------- */
+/* FLOATING PILL                                                    */
+/* ------------------------------------------------------------- */
+
+#rankace-floating-pill {
+  position: fixed !important;
+  right: 24px !important;
+  bottom: 24px !important;
+  z-index: 2147483630 !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  padding: 8px 14px 8px 8px !important;
+  background: rgba(8, 9, 10, 0.95) !important;
+  border: 1px solid var(--rk-border-default) !important;
+  border-radius: 9999px !important;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55) !important;
+  color: var(--rk-text-primary) !important;
+  font-family: var(--rk-font-ui) !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+  backdrop-filter: blur(10px) !important;
+  user-select: none !important;
+  transition: border-color 0.2s var(--rk-ease), transform 0.2s var(--rk-ease),
+    box-shadow 0.2s var(--rk-ease) !important;
+}
+
+#rankace-floating-pill:hover {
+  border-color: var(--rk-accent-line) !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.65), 0 0 0 1px var(--rk-accent-line) !important;
+}
+
+#rankace-floating-pill .rankace-icon {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 22px !important;
+  height: 22px !important;
+  background: var(--rk-accent-fill) !important;
+  border-radius: 6px !important;
+  color: #ffffff !important;
+  font-size: 11px !important;
+}
+
+#rankace-floating-pill .rankace-counter {
+  background: rgba(229, 72, 77, 0.16) !important;
+  border: 1px solid rgba(229, 72, 77, 0.4) !important;
+  border-radius: 9999px !important;
+  color: var(--rk-error) !important;
+  font-family: var(--rk-font-mono) !important;
+  font-size: 10px !important;
+  font-weight: 500 !important;
+  font-variant-numeric: tabular-nums !important;
+  padding: 2px 7px !important;
+}
+
+#rankace-floating-pill .rankace-counter.rankace-is-clean {
+  background: rgba(47, 191, 113, 0.12) !important;
+  border-color: rgba(47, 191, 113, 0.32) !important;
+  color: var(--rk-success) !important;
+}
+
+#rankace-floating-pill .rankace-score {
+  background: rgba(47, 191, 113, 0.12) !important;
+  border: 1px solid rgba(47, 191, 113, 0.32) !important;
+  border-radius: 9999px !important;
+  color: var(--rk-success) !important;
+  font-family: var(--rk-font-mono) !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  font-variant-numeric: tabular-nums !important;
+  padding: 2px 7px !important;
+}
+
+/* ------------------------------------------------------------- */
+/* IN-PAGE DRAWER — chrome                                           */
+/* ------------------------------------------------------------- */
+
+#rankace-inpage-drawer {
+  position: fixed !important;
+  top: 0 !important;
+  right: 0 !important;
+  width: 400px !important;
+  max-width: 92vw !important;
+  height: 100vh !important;
+  z-index: 2147483646 !important;
+  background: var(--rk-canvas) !important;
+  border-left: 1px solid var(--rk-border-default) !important;
+  box-shadow: -18px 0 48px rgba(0, 0, 0, 0.6) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  transform: translateX(105%) !important;
+  transition: transform 0.32s var(--rk-ease) !important;
+  box-sizing: border-box !important;
+  color: var(--rk-text-primary) !important;
+  font-family: var(--rk-font-ui) !important;
+  font-size: 13px !important;
+  line-height: 1.5 !important;
+}
+
+#rankace-inpage-drawer.rankace-open { transform: translateX(0) !important; }
+
+#rankace-inpage-drawer *,
+#rankace-inpage-drawer *::before,
+#rankace-inpage-drawer *::after { box-sizing: border-box !important; }
+
+.rankace-drawer-header {
+  flex: 0 0 auto !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 12px !important;
+  padding: 14px 16px !important;
+  background: var(--rk-surface-1) !important;
+  border-bottom: 1px solid var(--rk-border-subtle) !important;
+}
+
+.rankace-drawer-brand {
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  min-width: 0 !important;
+}
+
+.rankace-drawer-brand-logo {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex: 0 0 auto !important;
+  width: 28px !important;
+  height: 28px !important;
+  border-radius: var(--rk-radius-sm) !important;
+  background: var(--rk-accent-fill) !important;
+  color: #ffffff !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+}
+
+.rankace-drawer-title {
+  color: var(--rk-text-primary) !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  line-height: 1.25 !important;
+}
+
+.rankace-drawer-subtitle {
+  color: var(--rk-text-tertiary) !important;
+  font-family: var(--rk-font-mono) !important;
+  font-size: 10px !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.14em !important;
+}
+
+.rankace-drawer-actions {
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  flex: 0 0 auto !important;
+}
+
+.rankace-drawer-btn {
+  background: var(--rk-surface-2) !important;
+  border: 1px solid var(--rk-border-default) !important;
+  border-radius: var(--rk-radius-sm) !important;
+  color: var(--rk-text-secondary) !important;
+  cursor: pointer !important;
+  font-family: var(--rk-font-ui) !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  padding: 5px 9px !important;
+  transition: background-color 0.15s var(--rk-ease), color 0.15s var(--rk-ease),
+    border-color 0.15s var(--rk-ease) !important;
+}
+
+.rankace-drawer-btn:hover {
+  background: var(--rk-accent-quiet) !important;
+  border-color: var(--rk-accent-line) !important;
+  color: var(--rk-text-primary) !important;
+}
+
+.rankace-drawer-close {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 26px !important;
+  height: 26px !important;
+  border: 1px solid var(--rk-border-default) !important;
+  border-radius: var(--rk-radius-sm) !important;
+  background: var(--rk-surface-2) !important;
+  color: var(--rk-text-secondary) !important;
+  cursor: pointer !important;
+  font-size: 15px !important;
+  line-height: 1 !important;
+  transition: background-color 0.15s var(--rk-ease), color 0.15s var(--rk-ease) !important;
+}
+
+.rankace-drawer-close:hover {
+  background: var(--rk-danger-fill) !important;
+  border-color: var(--rk-danger-fill) !important;
+  color: var(--rk-text-primary) !important;
+}
+
+.rankace-drawer-body {
+  flex: 1 1 auto !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px !important;
+  padding: 14px !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain !important;
+}
+
+#rankace-inpage-drawer ::-webkit-scrollbar { width: 8px !important; }
+#rankace-inpage-drawer ::-webkit-scrollbar-track { background: transparent !important; }
+#rankace-inpage-drawer ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14) !important;
+  border: 2px solid transparent !important;
+  border-radius: 9999px !important;
+  background-clip: content-box !important;
+}
+#rankace-inpage-drawer ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.24) !important; }
+
+/* ------------------------------------------------------------- */
+/* DRAWER BODY — cards, score, issues                               */
+/* ------------------------------------------------------------- */
+
+.rankace-card {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 8px !important;
+  padding: 12px 13px !important;
+  background: var(--rk-surface-1) !important;
+  border: 1px solid var(--rk-border-subtle) !important;
+  border-radius: var(--rk-radius) !important;
+}
+
+.rankace-card-row {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 8px !important;
+}
+
+.rankace-eyebrow {
+  padding: 2px 7px !important;
+  background: var(--rk-accent-quiet) !important;
+  border: 1px solid var(--rk-accent-line) !important;
+  border-radius: var(--rk-radius-sm) !important;
+  color: var(--rk-accent) !important;
+  font-family: var(--rk-font-mono) !important;
+  font-size: 10px !important;
+  font-weight: 500 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.14em !important;
+}
+
+.rankace-timestamp {
+  color: var(--rk-text-tertiary) !important;
+  font-family: var(--rk-font-mono) !important;
+  font-size: 10px !important;
+  font-variant-numeric: tabular-nums !important;
+}
+
+.rankace-urlbar {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  padding: 6px 9px !important;
+  background: var(--rk-surface-sunken) !important;
+  border: 1px solid var(--rk-border-subtle) !important;
+  border-radius: var(--rk-radius-sm) !important;
+}
+
+.rankace-url-link {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  overflow: hidden !important;
+  color: var(--rk-text-primary) !important;
+  font-family: var(--rk-font-mono) !important;
+  font-size: 11px !important;
+  text-decoration: none !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.rankace-url-link:hover { color: var(--rk-accent-hover) !important; text-decoration: underline !important; }
+
+.rankace-copy-btn {
+  display: flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  flex: 0 0 auto !important;
+  padding: 4px 8px !important;
+  background: var(--rk-surface-2) !important;
+  border: 1px solid var(--rk-border-default) !important;
+  border-radius: var(--rk-radius-sm) !important;
+  color: var(--rk-text-secondary) !important;
+  cursor: pointer !important;
+  font-family: var(--rk-font-ui) !important;
+  font-size: 10px !important;
+  font-weight: 500 !important;
+  transition: background-color 0.15s var(--rk-ease), color 0.15s var(--rk-ease) !important;
+}
+
+.rankace-copy-btn:hover {
+  background: var(--rk-accent-quiet) !important;
+  border-color: var(--rk-accent-line) !important;
+  color: var(--rk-text-primary) !important;
+}
+
+.rankace-copy-btn.rankace-is-done {
+  background: rgba(47, 191, 113, 0.14) !important;
+  border-color: rgba(47, 191, 113, 0.36) !important;
+  color: var(--rk-success) !important;
+}
+
+.rankace-page-title {
+  overflow: hidden !important;
+  color: var(--rk-text-secondary) !important;
+  font-size: 11px !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.rankace-score-hero {
+  display: flex !important;
+  align-items: center !important;
+  gap: 13px !important;
+  padding: 13px !important;
+  background: var(--rk-surface-1) !important;
+  border: 1px solid var(--rk-border-subtle) !important;
+  border-radius: var(--rk-radius) !important;
+}
+
+.rankace-score-ring {
+  position: relative !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex: 0 0 auto !important;
+  width: 56px !important;
+  height: 56px !important;
+  border-radius: 50% !important;
+}
+
+.rankace-score-ring-inner {
+  position: absolute !important;
+  width: 44px !important;
+  height: 44px !important;
+  border-radius: 50% !important;
+  background: var(--rk-surface-1) !important;
+}
+
+.rankace-score-value {
+  position: relative !important;
+  color: var(--rk-text-primary) !important;
+  font-family: var(--rk-font-mono) !important;
+  font-size: 17px !important;
+  font-weight: 500 !important;
+  font-variant-numeric: tabular-nums !important;
+}
+
+.rankace-score-label {
+  color: var(--rk-text-tertiary) !important;
+  font-family: var(--rk-font-mono) !important;
+  font-size: 10px !important;
+  font-weight: 500 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.14em !important;
+}
+
+.rankace-score-status { margin: 3px 0 7px !important; font-size: 14px !important; font-weight: 600 !important; }
+.rankace-score-status.rankace-ok { color: var(--rk-success) !important; }
+.rankace-score-status.rankace-warn { color: var(--rk-warning) !important; }
+.rankace-score-status.rankace-bad { color: var(--rk-error) !important; }
+
+.rankace-counts { display: flex !important; flex-wrap: wrap !important; gap: 6px !important; }
+
+.rankace-count {
+  padding: 2px 7px !important;
+  border-radius: var(--rk-radius-sm) !important;
+  font-family: var(--rk-font-mono) !important;
+  font-size: 10px !important;
+  font-weight: 500 !important;
+  font-variant-numeric: tabular-nums !important;
+}
+
+.rankace-count-critical {
+  background: rgba(229, 72, 77, 0.14) !important;
+  border: 1px solid rgba(229, 72, 77, 0.32) !important;
+  color: var(--rk-error) !important;
+}
+
+.rankace-count-warning {
+  background: rgba(217, 164, 65, 0.14) !important;
+  border: 1px solid rgba(217, 164, 65, 0.32) !important;
+  color: var(--rk-warning) !important;
+}
+
+.rankace-power-card {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 10px !important;
+  padding: 12px 13px !important;
+  background: var(--rk-surface-1) !important;
+  border: 1px solid var(--rk-border-subtle) !important;
+  border-radius: var(--rk-radius) !important;
+}
+
+.rankace-power-label { color: var(--rk-text-primary) !important; font-size: 12px !important; font-weight: 600 !important; }
+.rankace-power-sub { margin-top: 2px !important; color: var(--rk-text-tertiary) !important; font-size: 11px !important; }
+
+.rankace-power-state {
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  color: var(--rk-text-secondary) !important;
+  font-family: var(--rk-font-mono) !important;
+  font-size: 10px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.14em !important;
+  text-transform: uppercase !important;
+}
+
+.rankace-power-state.rankace-is-on { color: var(--rk-success) !important; }
+
+.rankace-dot {
+  width: 8px !important;
+  height: 8px !important;
+  flex: 0 0 auto !important;
+  border-radius: 50% !important;
+  background: var(--rk-text-tertiary) !important;
+}
+
+.rankace-power-state.rankace-is-on .rankace-dot {
+  background: var(--rk-success) !important;
+  box-shadow: 0 0 0 3px rgba(47, 191, 113, 0.18) !important;
+}
+
+.rankace-power-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  flex: 0 0 auto !important;
+  padding: 7px 11px !important;
+  background: var(--rk-accent-fill) !important;
+  border: 1px solid var(--rk-accent-line) !important;
+  border-radius: var(--rk-radius-sm) !important;
+  color: #ffffff !important;
+  cursor: pointer !important;
+  font-family: var(--rk-font-mono) !important;
+  font-size: 10px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.08em !important;
+  transition: background-color 0.15s var(--rk-ease), border-color 0.15s var(--rk-ease) !important;
+}
+
+.rankace-power-btn:hover { background: var(--rk-accent-fill-hover) !important; }
+
+.rankace-power-btn.rankace-is-off {
+  background: var(--rk-surface-2) !important;
+  border-color: var(--rk-border-default) !important;
+  color: var(--rk-text-secondary) !important;
+}
+
+.rankace-power-btn.rankace-is-off:hover {
+  background: var(--rk-accent-quiet) !important;
+  color: var(--rk-text-primary) !important;
+}
+
+.rankace-toggle-row {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 10px !important;
+  padding: 10px 13px !important;
+  background: var(--rk-surface-1) !important;
+  border: 1px solid var(--rk-border-subtle) !important;
+  border-radius: var(--rk-radius) !important;
+}
+
+.rankace-toggle-row .toggle {
+  position: relative !important;
+  display: inline-block !important;
+  flex: 0 0 auto !important;
+  width: 38px !important;
+  height: 21px !important;
+  cursor: pointer !important;
+}
+
+.rankace-toggle-row .toggle input {
+  position: absolute !important;
+  width: 100% !important;
+  height: 100% !important;
+  margin: 0 !important;
+  opacity: 0 !important;
+  cursor: pointer !important;
+}
+
+.rankace-toggle-row .toggle .slider {
+  position: absolute !important;
+  inset: 0 !important;
+  background: rgba(255, 255, 255, 0.12) !important;
+  border: 1px solid var(--rk-border-default) !important;
+  border-radius: 9999px !important;
+  transition: background-color 0.18s var(--rk-ease) !important;
+}
+
+.rankace-toggle-row .toggle .slider::before {
+  content: "" !important;
+  position: absolute !important;
+  top: 2px !important;
+  left: 2px !important;
+  width: 15px !important;
+  height: 15px !important;
+  border-radius: 50% !important;
+  background: var(--rk-text-primary) !important;
+  transition: transform 0.18s var(--rk-ease) !important;
+}
+
+.rankace-toggle-row .toggle input:checked + .slider {
+  background: var(--rk-accent-fill) !important;
+  border-color: var(--rk-accent-line) !important;
+}
+
+.rankace-toggle-row .toggle input:checked + .slider::before { transform: translateX(17px) !important; }
+
+.rankace-toggle-row .toggle input:focus-visible + .slider {
+  outline: 2px solid var(--rk-accent) !important;
+  outline-offset: 2px !important;
+}
+
+.rankace-feed-head {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  margin-top: 4px !important;
+  color: var(--rk-text-tertiary) !important;
+  font-family: var(--rk-font-mono) !important;
+  font-size: 10px !important;
+  font-weight: 500 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.14em !important;
+}
+
+.rankace-drawer-issues-list { display: flex !important; flex-direction: column !important; gap: 8px !important; }
+
+.rankace-issue-card {
+  padding: 11px 12px !important;
+  background: var(--rk-surface-1) !important;
+  border: 1px solid var(--rk-border-subtle) !important;
+  border-left: 2px solid var(--rk-info) !important;
+  border-radius: var(--rk-radius-sm) !important;
+}
+
+.rankace-issue-card.critical { border-left-color: var(--rk-error) !important; }
+.rankace-issue-card.warning { border-left-color: var(--rk-warning) !important; }
+.rankace-issue-card.info { border-left-color: var(--rk-info) !important; }
+
+.rankace-issue-top {
+  display: flex !important;
+  align-items: flex-start !important;
+  justify-content: space-between !important;
+  gap: 8px !important;
+}
+
+.rankace-issue-title { color: var(--rk-text-primary) !important; font-size: 12px !important; font-weight: 600 !important; }
+
+.rankace-badge-tag {
+  flex: 0 0 auto !important;
+  padding: 2px 6px !important;
+  border-radius: 3px !important;
+  font-family: var(--rk-font-mono) !important;
+  font-size: 9px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.14em !important;
+  text-transform: uppercase !important;
+}
+
+.rankace-badge-tag.critical { background: rgba(229, 72, 77, 0.16) !important; color: var(--rk-error) !important; }
+.rankace-badge-tag.warning { background: rgba(217, 164, 65, 0.16) !important; color: var(--rk-warning) !important; }
+.rankace-badge-tag.info { background: rgba(76, 154, 255, 0.16) !important; color: var(--rk-info) !important; }
+
+.rankace-issue-msg {
+  margin-top: 4px !important;
+  color: var(--rk-text-secondary) !important;
+  font-size: 11px !important;
+  line-height: 1.5 !important;
+}
+
+.rankace-issue-fix {
+  margin-top: 7px !important;
+  padding: 6px 9px !important;
+  background: var(--rk-surface-sunken) !important;
+  border: 1px solid var(--rk-border-subtle) !important;
+  border-left: 2px solid var(--rk-accent) !important;
+  border-radius: var(--rk-radius-sm) !important;
+  color: var(--rk-text-secondary) !important;
+  font-size: 11px !important;
+  line-height: 1.5 !important;
+}
+
+.rankace-issue-foot {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 8px !important;
+  margin-top: 8px !important;
+}
+
+.rankace-issue-foot-note { color: var(--rk-text-tertiary) !important; font-size: 10px !important; }
+
+.rankace-drawer-inspect-btn {
+  padding: 5px 10px !important;
+  background: var(--rk-accent-quiet) !important;
+  border: 1px solid var(--rk-accent-line) !important;
+  border-radius: var(--rk-radius-sm) !important;
+  color: var(--rk-accent) !important;
+  cursor: pointer !important;
+  font-family: var(--rk-font-ui) !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  transition: background-color 0.15s var(--rk-ease), color 0.15s var(--rk-ease) !important;
+}
+
+.rankace-drawer-inspect-btn:hover {
+  background: var(--rk-accent-fill) !important;
+  color: #ffffff !important;
+}
+
+/* ------------------------------------------------------------- */
+/* FOCUS + REDUCED MOTION                                           */
+/* ------------------------------------------------------------- */
+
+#rankace-inpage-drawer button:focus-visible,
+#rankace-floating-pill:focus-visible,
+.rankace-badge-close:focus-visible,
+.rankace-drawer-inspect-btn:focus-visible,
+.rankace-copy-btn:focus-visible,
+.rankace-drawer-btn:focus-visible,
+.rankace-drawer-close:focus-visible,
+.rankace-power-btn:focus-visible,
+.rankace-defect-badge:focus-visible {
+  outline: 2px solid var(--rk-accent) !important;
+  outline-offset: 2px !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #rankace-inpage-drawer,
+  #rankace-floating-pill,
+  .rankace-drawer-btn,
+  .rankace-drawer-close,
+  .rankace-badge-close,
+  .rankace-copy-btn,
+  .rankace-power-btn,
+  .rankace-drawer-inspect-btn,
+  .rankace-defect-box,
+  .rankace-toggle-row .toggle .slider,
+  .rankace-toggle-row .toggle .slider::before {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+  #rankace-inpage-drawer.rankace-open { transform: translateX(0) !important; }
+}
+
+/* Info-severity counter. Added with the severity-weighted scoring fix: the
+   drawer now reports info findings (e.g. non-descriptive anchor text) instead
+   of silently folding them into the warning count, so they need their own
+   chip. Same shape as the critical/warning chips, muted to match severity. */
+.rankace-count-info {
+  color: #7c838a;
+  background: rgba(124, 131, 138, 0.14);
+  border: 1px solid rgba(124, 131, 138, 0.28);
+}
+
+/* ------------------------------------------------------------- */
+/* PAGE FACTS + SERP PREVIEW                                       */
+/*                                                                 */
+/* The side panel and the in-page drawer show the same facts, so   */
+/* the visual language is shared: one bordered panel, a monospace  */
+/* key/value grid, and a Google-shaped preview of how the page     */
+/* will appear in results. Scoped to the drawer so a host page's   */
+/* own .rankace-* lookalike cannot inherit these rules.            */
+/* ------------------------------------------------------------- */
+
+#rankace-inpage-drawer .rankace-serp {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 2px !important;
+  padding: 9px 11px !important;
+  background: var(--rk-surface-sunken) !important;
+  border: 1px solid var(--rk-border-subtle) !important;
+  border-radius: var(--rk-radius-sm) !important;
+}
+
+.rankace-serp-url {
+  overflow: hidden !important;
+  color: #9aa0a6 !important;
+  font-family: var(--rk-font-ui) !important;
+  font-size: 10px !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.rankace-serp-title {
+  overflow: hidden !important;
+  color: #8ab4f8 !important;
+  font-family: var(--rk-font-ui) !important;
+  font-size: 14px !important;
+  line-height: 1.35 !important;
+  text-overflow: ellipsis !important;
+  display: -webkit-box !important;
+  -webkit-line-clamp: 2 !important;
+  -webkit-box-orient: vertical !important;
+}
+
+.rankace-serp-desc {
+  color: var(--rk-text-secondary) !important;
+  font-family: var(--rk-font-ui) !important;
+  font-size: 11px !important;
+  line-height: 1.45 !important;
+  display: -webkit-box !important;
+  -webkit-line-clamp: 3 !important;
+  -webkit-box-orient: vertical !important;
+  overflow: hidden !important;
+}
+
+.rankace-facts-grid {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr !important;
+  gap: 6px !important;
+}
+
+.rankace-fact {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 1px !important;
+  min-width: 0 !important;
+  padding: 5px 8px !important;
+  background: var(--rk-surface-sunken) !important;
+  border: 1px solid var(--rk-border-subtle) !important;
+  border-radius: var(--rk-radius-sm) !important;
+}
+
+.rankace-fact-label {
+  color: var(--rk-text-tertiary) !important;
+  font-family: var(--rk-font-mono) !important;
+  font-size: 9px !important;
+  letter-spacing: 0.1em !important;
+  text-transform: uppercase !important;
+}
+
+.rankace-fact-value {
+  overflow: hidden !important;
+  color: var(--rk-text-primary) !important;
+  font-family: var(--rk-font-mono) !important;
+  font-size: 11px !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+/* ------------------------------------------------------------- */
+/* AUTO-FIX CARD                                                   */
+/* ------------------------------------------------------------- */
+
+.rankace-autofix-btn {
+  background: rgba(59, 130, 246, 0.16) !important;
+  border-color: rgba(59, 130, 246, 0.45) !important;
+  color: var(--rk-accent, #7ab8ff) !important;
+}
+
+.rankace-autofix-desc {
+  color: var(--rk-text-secondary) !important;
+  font-size: 12px !important;
+  line-height: 1.55 !important;
+}
+
+.rankace-autofix-summary {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 3px !important;
+}
+
+.rankace-autofix-line {
+  font-size: 11px !important;
+  font-weight: 600 !important;
+}
+
+.rankace-autofix-list {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 6px !important;
+  max-height: 220px !important;
+  overflow-y: auto !important;
+}
+
+.rankace-autofix-item {
+  display: flex !important;
+  align-items: flex-start !important;
+  gap: 8px !important;
+  padding: 7px 8px !important;
+  background: var(--rk-surface-sunken) !important;
+  border: 1px solid var(--rk-border-subtle) !important;
+  border-radius: var(--rk-radius-sm) !important;
+  animation: rankace-rise 0.28s var(--rk-ease, ease) both !important;
+}
+
+.rankace-autofix-item:nth-child(2) { animation-delay: 0.04s; }
+.rankace-autofix-item:nth-child(3) { animation-delay: 0.08s; }
+.rankace-autofix-item:nth-child(4) { animation-delay: 0.12s; }
+.rankace-autofix-item:nth-child(5) { animation-delay: 0.16s; }
+
+.rankace-autofix-check {
+  flex: 0 0 auto !important;
+  color: #2fbf71 !important;
+  font-size: 12px !important;
+  line-height: 1.3 !important;
+}
+
+.rankace-autofix-check.rankace-manual { color: #d9a441 !important; }
+
+.rankace-autofix-title {
+  color: var(--rk-text-primary) !important;
+  font-size: 11.5px !important;
+  font-weight: 600 !important;
+}
+
+.rankace-autofix-detail {
+  color: var(--rk-text-tertiary) !important;
+  font-size: 10px !important;
+  line-height: 1.45 !important;
+  word-break: break-word !important;
+}
+
+.rankace-autofix-note {
+  margin-top: 8px !important;
+  padding: 6px 8px !important;
+  background: rgba(217, 164, 65, 0.1) !important;
+  border: 1px solid rgba(217, 164, 65, 0.3) !important;
+  border-radius: var(--rk-radius-sm) !important;
+  color: var(--rk-text-secondary) !important;
+  font-size: 10.5px !important;
+  line-height: 1.5 !important;
+}
+
+.rankace-autofix-actions {
+  display: flex !important;
+  gap: 8px !important;
+  margin-top: 10px !important;
+}
+
+.rankace-autofix-actions .rankace-copy-btn {
+  flex: 1 1 auto !important;
+  justify-content: center !important;
+}
+
+.rankace-autofix-primary {
+  background: rgba(59, 130, 246, 0.2) !important;
+  border-color: rgba(59, 130, 246, 0.5) !important;
+  color: var(--rk-text-primary) !important;
+}
+
+/* ------------------------------------------------------------- */
+/* ENTRANCE MOTION                                                 */
+/* ------------------------------------------------------------- */
+
+@keyframes rankace-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+#rankace-inpage-drawer.rankace-open .rankace-drawer-header,
+#rankace-inpage-drawer.rankace-open .rankace-drawer-body > * {
+  animation: rankace-rise 0.32s var(--rk-ease, ease) both;
+}
+
+#rankace-inpage-drawer.rankace-open .rankace-drawer-body > *:nth-child(2) { animation-delay: 0.04s; }
+#rankace-inpage-drawer.rankace-open .rankace-drawer-body > *:nth-child(3) { animation-delay: 0.08s; }
+#rankace-inpage-drawer.rankace-open .rankace-drawer-body > *:nth-child(4) { animation-delay: 0.12s; }
+#rankace-inpage-drawer.rankace-open .rankace-drawer-body > *:nth-child(5) { animation-delay: 0.16s; }
+
+.rankace-issue-card {
+  animation: rankace-rise 0.26s var(--rk-ease, ease) both;
+}
+
+.rankace-issue-card:nth-child(2) { animation-delay: 0.04s; }
+.rankace-issue-card:nth-child(3) { animation-delay: 0.08s; }
+.rankace-issue-card:nth-child(4) { animation-delay: 0.12s; }
+.rankace-issue-card:nth-child(5) { animation-delay: 0.16s; }

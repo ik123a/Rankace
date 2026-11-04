@@ -37,6 +37,23 @@ const metricRead = document.getElementById("metric-read");
 const metricHeadings = document.getElementById("metric-headings");
 const metricImages = document.getElementById("metric-images");
 
+// Page detail sections
+const serpUrl = document.getElementById("serp-url");
+const serpTitle = document.getElementById("serp-title");
+const serpDesc = document.getElementById("serp-desc");
+const factsGrid = document.getElementById("facts-grid");
+const schemaChips = document.getElementById("schema-chips");
+const socialChips = document.getElementById("social-chips");
+const linkChips = document.getElementById("link-chips");
+const headingOutline = document.getElementById("heading-outline");
+const btnCopyReport = document.getElementById("btn-copy-report");
+
+// Auto-fix & export
+const btnAutofix = document.getElementById("btn-autofix");
+const btnDownloadHtml = document.getElementById("btn-download-html");
+const autofixResults = document.getElementById("autofix-results");
+const quickTools = document.getElementById("quick-tools");
+
 // Initialize
 document.addEventListener("DOMContentLoaded", () => {
   initSidePanel();
@@ -158,6 +175,46 @@ function setupEventListeners() {
     });
   });
 
+  if (btnCopyReport) {
+    btnCopyReport.addEventListener("click", () => {
+      if (!currentAudit) return;
+      navigator.clipboard.writeText(buildReportText(currentAudit)).then(() => {
+        const prev = btnCopyReport.innerHTML;
+        btnCopyReport.innerHTML = "✓ Full report copied";
+        setTimeout(() => { btnCopyReport.innerHTML = prev; }, 1800);
+      });
+    });
+  }
+
+  // Auto-Fix: apply safe corrections in the page, then show what happened
+  if (btnAutofix) {
+    btnAutofix.addEventListener("click", async () => {
+      if (!activeTabId) return;
+      btnAutofix.disabled = true;
+      btnAutofix.textContent = "Fixing…";
+      const result = await sendMessage({ action: "APPLY_ALL_FIXES" });
+      btnAutofix.disabled = false;
+      btnAutofix.textContent = "✨ Fix all fixable issues";
+      if (result) renderAutofixResults(result);
+      fetchAuditData();
+    });
+  }
+
+  // Corrected file export (works whether or not fixes were applied first)
+  if (btnDownloadHtml) {
+    btnDownloadHtml.addEventListener("click", async () => {
+      if (!activeTabId) return;
+      const res = await sendMessage({ action: "DOWNLOAD_CORRECTED_HTML" });
+      const prev = btnDownloadHtml.innerHTML;
+      btnDownloadHtml.innerHTML = res && res.ok
+        ? `✓ Saved ${res.filename || "corrected file"}`
+        : `⚠ ${res ? res.note : "page not inspectable"}`;
+      setTimeout(() => { btnDownloadHtml.innerHTML = prev; }, 2600);
+    });
+  }
+
+  if (quickTools) renderQuickTools();
+
   // Target Keyword NLP Intent Classifier
   btnIntent.addEventListener("click", testSearchIntent);
   targetKeyword.addEventListener("keyup", (e) => {
@@ -241,7 +298,137 @@ function updateUI(audit) {
   metricImages.textContent = `${audit.stats.totalImages} (${audit.stats.missingAltCount} missing alt)`;
 
   renderIssuesFeed();
+  renderDetails(audit);
   checkKeywordPlacement();
+}
+
+// Render the SERP preview, page facts, schema, social, link profile and
+// heading outline. Everything is read from the audit's `facts` object so the
+// side panel never makes a claim the DOM did not support.
+function renderDetails(audit) {
+  const facts = audit.facts;
+  if (!facts) return;
+
+  if (serpUrl) serpUrl.textContent = audit.url;
+  if (serpTitle) serpTitle.textContent = audit.title || "(no title tag)";
+  if (serpDesc) {
+    serpDesc.textContent =
+      audit.stats.metaDescription || "(no meta description — search engines will invent a snippet)";
+  }
+
+  const rows = [
+    ["Canonical", !facts.meta.canonical ? "missing" : facts.meta.canonicalSelf === false ? "cross-domain" : "self-referencing"],
+    ["Robots", facts.meta.robots],
+    ["Language", facts.meta.lang || "missing"],
+    ["Viewport", facts.meta.viewport ? "declared" : "missing"],
+    ["Charset", facts.meta.charset || "missing"],
+    ["Hreflang", facts.hreflang.count ? `${facts.hreflang.count} alternates` : "none"],
+    ["Title length", `${facts.meta.titleLength} chars`],
+    ["Description", `${facts.meta.descriptionLength} chars`],
+    ["DOM nodes", facts.tech.domNodes.toLocaleString()],
+    ["Scripts / CSS", `${facts.tech.scripts} / ${facts.tech.stylesheets}`]
+  ];
+  if (factsGrid) {
+    factsGrid.innerHTML = rows
+      .map(
+        ([label, value]) => `
+        <div class="detail-row">
+          <div class="detail-label">${escapeHTML(label)}</div>
+          <div class="detail-value" title="${escapeAttr(value)}">${escapeHTML(value)}</div>
+        </div>`
+      )
+      .join("");
+  }
+
+  if (schemaChips) {
+    const chips = [];
+    if (facts.schema.types.length) {
+      facts.schema.types.forEach((type) => chips.push(chip(type, "ok")));
+    } else if (facts.schema.microdataItems > 0) {
+      chips.push(chip(`${facts.schema.microdataItems} microdata items`, "ok"));
+    } else if (facts.schema.blocks > 0) {
+      // A block exists but parsed to no usable type. Saying "no structured
+      // data" alongside "1 invalid block" described two different faults for
+      // one cause and suggested the wrong fix.
+      chips.push(chip("0 usable types", "bad"));
+    } else {
+      chips.push(chip("No structured data", "bad"));
+    }
+    if (facts.schema.invalidBlocks > 0) chips.push(chip(`${facts.schema.invalidBlocks} invalid block(s)`, "bad"));
+    schemaChips.innerHTML = chips.join("");
+  }
+
+  if (socialChips) {
+    const social = facts.social;
+    const entries = [
+      ["og:title", social.ogTitle],
+      ["og:description", social.ogDescription],
+      ["og:image", social.ogImage],
+      ["twitter:card", social.twitterCard]
+    ];
+    socialChips.innerHTML = entries
+      .map(([label, value]) => chip(value ? `✓ ${label}` : `✗ ${label}`, value ? "ok" : "bad"))
+      .join("");
+  }
+
+  if (linkChips) {
+    const links = facts.links;
+    linkChips.innerHTML = [
+      chip(`${links.internal} internal`),
+      chip(`${links.external} external`),
+      chip(`${links.nofollow} nofollow`),
+      links.emptyAnchor > 0 ? chip(`${links.emptyAnchor} empty anchors`, "bad") : chip("0 empty anchors", "ok"),
+      links.newTabMissingNoopener > 0
+        ? chip(`${links.newTabMissingNoopener} missing noopener`, "bad")
+        : chip("noopener ok", "ok")
+    ].join("");
+  }
+
+  if (headingOutline) {
+    const outline = facts.headings.outline;
+    headingOutline.innerHTML = outline.length
+      ? outline
+          .map(
+            (item) => `
+          <div class="outline-item">
+            <span class="outline-level">H${item.level}</span>
+            <span class="outline-text" title="${escapeAttr(item.text)}">${escapeHTML(item.text || "(empty)")}</span>
+          </div>`
+          )
+          .join("")
+      : `<div class="outline-item"><span class="outline-text">No headings found</span></div>`;
+  }
+}
+
+function chip(label, tone) {
+  return `<span class="chip${tone ? ` ${tone}` : ""}">${escapeHTML(label)}</span>`;
+}
+
+// Plain-text report, shared shape with the in-page drawer.
+function buildReportText(audit) {
+  const lines = [
+    `Rankace page report — ${audit.url}`,
+    `Scanned: ${new Date().toISOString()}`,
+    `On-page score: ${audit.score}/100`,
+    "",
+    `Title (${audit.stats.titleLength}): ${audit.stats.title || "(missing)"}`,
+    `Description (${audit.stats.metaDescLength}): ${audit.stats.metaDescription || "(missing)"}`,
+    `Canonical: ${audit.stats.canonical || "(missing)"}`,
+    `Robots: ${audit.stats.robots || "(none)"}`,
+    `Language: ${audit.stats.lang || "(missing)"}`,
+    `Words: ${audit.stats.wordCount} · H1: ${audit.stats.h1Count} · H2: ${audit.stats.h2Count} · H3: ${audit.stats.h3Count}`,
+    `Links: ${audit.stats.internalLinks} internal / ${audit.stats.externalLinks} external / ${audit.stats.nofollowLinks} nofollow`,
+    `Schema: ${(audit.stats.schemaTypes || []).join(", ") || "none"}`,
+    "",
+    `Findings (${audit.issues.length}):`
+  ];
+  audit.issues.forEach((issue) => {
+    lines.push(`- [${issue.severity.toUpperCase()}] ${issue.title}`);
+    lines.push(`  ${issue.message}`);
+    lines.push(`  Fix: ${issue.recommendation}`);
+    if (issue.targetSelector) lines.push(`  Element: ${issue.targetSelector}`);
+  });
+  return lines.join("\n");
 }
 
 // Render filtered issue cards
@@ -359,6 +546,69 @@ async function testSearchIntent() {
     btnIntent.disabled = false;
     btnIntent.textContent = "Classify Intent";
   }
+}
+
+// Promise wrapper around chrome.tabs.sendMessage with error tolerance.
+function sendMessage(message) {
+  return new Promise((resolve) => {
+    if (!activeTabId) return resolve(null);
+    chrome.tabs.sendMessage(activeTabId, message, (response) => {
+      if (chrome.runtime.lastError) return resolve(null);
+      resolve(response || null);
+    });
+  });
+}
+
+// Render the auto-fix outcome: applied corrections, skips, human-decisions.
+function renderAutofixResults(result) {
+  if (!autofixResults) return;
+  const line = (tone, glyph, text) => `<div class="autofix-line ${tone}">${glyph} ${escapeHTML(text)}</div>`;
+  let html = "";
+  if (!result.applied.length && !result.skipped.length && !result.manual.length) {
+    html += line("ok", "✓", `Nothing to correct — every checkable fix is already in place · score ${result.scoreAfter}/100`);
+  }
+  if (result.applied.length) html += line("ok", "✓", `${result.applied.length} correction${result.applied.length === 1 ? "" : "s"} applied · score ${result.scoreBefore} → ${result.scoreAfter}`);
+  if (result.skipped.length) html += line("warn", "⚠", `${result.skipped.length} could not be derived automatically`);
+  if (result.manual.length) html += line("warn", "✎", `${result.manual.length} need a human decision`);
+  html += result.applied
+    .map((f) => `<div class="autofix-item"><b>${escapeHTML(f.title)}</b>${f.detail ? `<span>${escapeHTML(f.detail)}</span>` : ""}</div>`)
+    .join("");
+  html += result.manual
+    .map((f) => `<div class="autofix-item manual"><b>${escapeHTML(f.title)}</b>${f.detail ? `<span>${escapeHTML(f.detail)}</span>` : ""}</div>`)
+    .join("");
+  autofixResults.innerHTML = html;
+  autofixResults.hidden = false;
+}
+
+// One-click links to the free external tools SEOs check daily.
+function renderQuickTools() {
+  if (!quickTools) return;
+  chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+    if (!tab || !tab.url || !/^https?:/.test(tab.url)) {
+      quickTools.innerHTML = '<span class="chip">Restricted page</span>';
+      return;
+    }
+    let u;
+    try { u = new URL(tab.url); } catch (e) {
+      quickTools.innerHTML = '<span class="chip">Restricted page</span>';
+      return;
+    }
+    const enc = encodeURIComponent(tab.url);
+    const host = encodeURIComponent(u.hostname.replace(/^www\./, ""));
+    const tools = [
+      ["PageSpeed", `https://pagespeed.web.dev/analysis?url=${enc}`],
+      ["Rich Results", `https://search.google.com/test/rich-results?url=${enc}`],
+      ["W3C Validator", `https://validator.w3.org/nu/?doc=${enc}`],
+      ["Wayback", `https://web.archive.org/web*/${enc}`],
+      ["SimilarWeb", `https://www.similarweb.com/website/${host}/`],
+      ["Moz", `https://moz.com/domain-analysis?site=${host}`],
+      ["Majestic", `https://majestic.com/reports/site-explorer?q=${host}`],
+      ["site: search", `https://www.google.com/search?q=site%3A${host}`]
+    ];
+    quickTools.innerHTML = tools
+      .map(([label, url]) => `<a class="chip chip-link" href="${escapeAttr(url)}" target="_blank" rel="noopener">↗ ${escapeHTML(label)}</a>`)
+      .join("");
+  });
 }
 
 function escapeHTML(str) {

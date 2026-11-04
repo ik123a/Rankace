@@ -8,6 +8,13 @@ export type ScoreMeterProps = {
   showValue?: boolean;
   size?: "sm" | "md" | "lg";
   className?: string;
+  /**
+   * The health band (Healthy / Needs work / At risk) is meaningful for a
+   * QUALITY score. It is nonsense for a CONFIDENCE reading: "Confidence: 35 out
+   * of 100, At risk" is a category error that a screen reader announces on
+   * every classifier result. Set false for percentages that are not health.
+   */
+  showHealthWord?: boolean;
 };
 
 const FILL: Record<string, string> = {
@@ -39,7 +46,8 @@ export function ScoreMeter({
   label,
   showValue = true,
   size = "md",
-  className
+  className,
+  showHealthWord = true
 }: ScoreMeterProps) {
   const score = clampScore(value);
   const kind = healthKind(score);
@@ -60,7 +68,9 @@ export function ScoreMeter({
             width={dimension}
             height={dimension}
             role="img"
-            aria-label={`${label ?? "Score"}: ${score} out of 100, ${healthLabel(score)}`}
+            aria-label={`${label ?? "Score"}: ${score} out of 100${
+              showHealthWord ? `, ${healthLabel(score)}` : ""
+            }`}
           >
             <circle
               cx={dimension / 2}
@@ -98,7 +108,7 @@ export function ScoreMeter({
           </span>
         </div>
         {label ? <span className="text-label text-ink-secondary">{label}</span> : null}
-        <span className="sr-only">{healthLabel(score)}</span>
+        {showHealthWord ? <span className="sr-only">{healthLabel(score)}</span> : null}
       </div>
     );
   }
@@ -141,7 +151,9 @@ export function ScoreMeter({
           track
         )}
         role="img"
-        aria-label={`${label ?? "Score"}: ${score} out of 100, ${healthLabel(score)}`}
+        aria-label={`${label ?? "Score"}: ${score} out of 100${
+          showHealthWord ? `, ${healthLabel(score)}` : ""
+        }`}
       >
         <span
           className={cn("absolute inset-y-0 left-0 block w-full origin-left rounded-pill", fill)}

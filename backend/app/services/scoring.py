@@ -30,7 +30,14 @@ def _saturating(value: float, half: float, ceiling: float = 100.0) -> float:
     return ceiling * value / (value + half)
 
 
-def compute_scores(technical: float, pages: list, keyword_fit: float, intent_match: float, gap_penalty: float) -> dict:
+def compute_scores(
+    technical: float,
+    pages: list,
+    keyword_fit: float,
+    intent_match: float,
+    gap_penalty: float,
+    gap_measured: bool = True,
+) -> dict:
     # Content: half-saturation at 600 words (so ~1200 words reads as "full"),
     # rising to a peak at OVERSIZED_AT then DECAYING. The technical analyzer
     # flags >5000 words, so scoring those pages 100 on this axis contradicted a
@@ -78,10 +85,20 @@ def compute_scores(technical: float, pages: list, keyword_fit: float, intent_mat
         "Keyword Fit": round(keyword_fit, 1),
         "Internal Links": round(internal, 1),
         "Intent Match": round(intent_match, 1),
-        "Content Gap": round(gap_coverage, 1),
     }
+
+    # Content Gap is only measurable when at least one competitor has been
+    # analysed. With none, gap_penalty is 0 by construction and the axis scored
+    # a perfect 100 -- a site with zero competitor data collected 15 free health
+    # points and displayed "Content Gap 100 · Healthy". An unmeasured axis is
+    # omitted and the remaining weights are renormalised, so it neither helps
+    # nor hurts the score until there is something to compare against.
+    if gap_measured:
+        breakdown["Content Gap"] = round(gap_coverage, 1)
+
     weights = {"Technical SEO": 0.25, "Content": 0.2, "Keyword Fit": 0.15, "Internal Links": 0.1, "Intent Match": 0.15, "Content Gap": 0.15}
-    health = round(sum(breakdown[k] * weights[k] for k in breakdown), 1)
+    measured_weight = sum(weights[key] for key in breakdown) or 1.0
+    health = round(sum(breakdown[k] * weights[k] for k in breakdown) / measured_weight, 1)
 
     # Opportunity = how much is LEFT to gain, not how bad the site is.
     #
@@ -98,14 +115,7 @@ def compute_scores(technical: float, pages: list, keyword_fit: float, intent_mat
     # never show more headroom. Keyword Fit is weighted more heavily than the
     # others because it is the axis a crawl can least directly improve and
     # therefore the most actionable finding.
-    shortfalls = {
-        "Technical SEO": 100.0 - breakdown["Technical SEO"],
-        "Content": 100.0 - breakdown["Content"],
-        "Keyword Fit": 100.0 - breakdown["Keyword Fit"],
-        "Internal Links": 100.0 - breakdown["Internal Links"],
-        "Intent Match": 100.0 - breakdown["Intent Match"],
-        "Content Gap": 100.0 - breakdown["Content Gap"],
-    }
+    shortfalls = {key: 100.0 - value for key, value in breakdown.items()}
     opportunity_weights = {
         "Technical SEO": 0.2,
         "Content": 0.15,
@@ -114,8 +124,15 @@ def compute_scores(technical: float, pages: list, keyword_fit: float, intent_mat
         "Intent Match": 0.1,
         "Content Gap": 0.2,
     }
+    opportunity_weight = sum(opportunity_weights[key] for key in shortfalls) or 1.0
     opportunity = round(
-        max(0.0, min(100.0, sum(shortfalls[k] * opportunity_weights[k] for k in shortfalls))),
+        max(
+            0.0,
+            min(
+                100.0,
+                sum(shortfalls[k] * opportunity_weights[k] for k in shortfalls) / opportunity_weight,
+            ),
+        ),
         1,
     )
     return {"health": health, "opportunity": opportunity, "breakdown": breakdown}

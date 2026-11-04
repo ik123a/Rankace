@@ -233,9 +233,9 @@ export default function ShowcasePage() {
       <Group title="Navigation pill">
         <NavPill
           items={[
-            { label: "Intent classifier", href: "/#classifier" },
+            { label: "Capabilities", href: "/#capabilities" },
             { label: "Pipeline", href: "/#pipeline" },
-            { label: "Capabilities", href: "/#capabilities" }
+            { label: "Method", href: "/#method" }
           ]}
           actionLabel="Launch app"
           actionHref="/dashboard"

@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -6,6 +7,9 @@ from app.api.auth import router as auth_router
 from app.api.projects import experiments_router, router as projects_router
 from app.core.config import settings
 from app.core.database import init_db
+
+
+logger = logging.getLogger(__name__)
 
 
 def startup():
@@ -26,7 +30,10 @@ def startup():
         finally:
             db.close()
     except Exception:
-        pass
+        # Seeding the demo user is not fatal, but a bare `pass` meant a database
+        # that could not be written to still booted and then answered every
+        # login with "invalid credentials". Log it so the cause is visible.
+        logger.exception("Demo user seed failed; the app will start without it")
 
 
 @asynccontextmanager

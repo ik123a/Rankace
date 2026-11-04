@@ -225,8 +225,9 @@ export default function LoginPage() {
             <div className="mt-6 flex flex-col gap-3">
               <IntentTag intent={readout.intent} />
               <ScoreMeter
-                value={Math.round((readout.confidence || 0.8) * 100)}
+                value={Math.round(readout.confidence * 100)}
                 label="Classifier confidence"
+                showHealthWord={false}
               />
             </div>
 

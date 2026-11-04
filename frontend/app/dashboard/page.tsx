@@ -15,6 +15,7 @@ import {
   Trash2
 } from "lucide-react";
 import { api, getToken, logout } from "../../lib/api";
+import { absoluteTime, formatNumber, relativeTime } from "../../lib/format";
 import { Button } from "../../components/ui/button";
 import { Dialog } from "../../components/ui/dialog";
 import { EmptyState } from "../../components/ui/empty-state";
@@ -46,6 +47,22 @@ type DemoData = {
   note: string;
 };
 
+type Overview = {
+  projects: { total: number; active: number; archived: number };
+  pages_audited: number;
+  health: number | null;
+  projects_audited: number;
+  open_actions: number;
+  keywords: number;
+  last_audit: {
+    project_id: number;
+    status: string;
+    pages_crawled: number;
+    finished_at: string | null;
+    started_at: string | null;
+  } | null;
+};
+
 const FILTERS = [
   { id: "active", label: "Active" },
   { id: "archived", label: "Archived" },
@@ -60,6 +77,7 @@ function DashboardContent() {
   const showDemoParam = searchParams.get("demo") === "1";
 
   const [projects, setProjects] = useState<Project[]>([]);
+  const [overview, setOverview] = useState<Overview | null>(null);
   const [demoData, setDemoData] = useState<DemoData | null>(null);
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
@@ -81,11 +99,17 @@ function DashboardContent() {
     }
 
     try {
-      const data = await api<Project[]>("/api/projects");
+      // The aggregate is a separate, optional read: a failure there must not
+      // take down the roster, which is the page's actual job.
+      const [data, summary] = await Promise.all([
+        api<Project[]>("/api/projects"),
+        api<Overview>("/api/projects/overview").catch(() => null)
+      ]);
       setProjects(data || []);
+      setOverview(summary);
 
       if (showDemoParam) {
-        const demo = await api<DemoData>("/api/demo");
+        const demo = await api<DemoData>("/api/demo").catch(() => null);
         setDemoData(demo);
       }
     } catch (e) {
@@ -124,7 +148,13 @@ function DashboardContent() {
         })
       });
 
-      setSuccessMsg(`Project "${newProject.name}" created. Baseline crawl is being initialised.`);
+      // This used to promise "Baseline crawl is being initialised" -- nothing
+      // started a crawl. Creating a project only stores the domain and target
+      // query; the first audit is an explicit action. Say what actually
+      // happened so the empty cockpit is not a surprise.
+      setSuccessMsg(
+        `Project "${newProject.name}" created. Open it and run the first audit to populate its scores.`
+      );
       setName("");
       setUrl("");
       setKeyword("");
@@ -169,6 +199,14 @@ function DashboardContent() {
   );
   const activeProjectsCount = projects.filter((project) => project.status === "active").length;
 
+  // Demo mode substitutes the labelled synthetic figures. Every other number on
+  // this row is a real count from /api/projects/overview; the previous version
+  // hardcoded 88/100, 94% and an "Online" status that came from nothing.
+  const usingDemo = Boolean(showDemoParam && demoData);
+  const meanHealth = usingDemo ? demoData?.health ?? null : overview?.health ?? null;
+  const healthTone =
+    meanHealth === null ? "neutral" : meanHealth >= 80 ? "success" : meanHealth >= 50 ? "warning" : "error";
+
   return (
     <div className="min-h-[100dvh] bg-canvas">
       <header className="header-bar border-b border-line-subtle bg-canvas/85 backdrop-blur-xl">
@@ -206,19 +244,53 @@ function DashboardContent() {
             Array.from({ length: 4 }, (_, index) => <StatBlock key={index} label="" value={0} loading />)
           ) : (
             <>
-              <StatBlock label="Active projects" value={activeProjectsCount} />
               <StatBlock
-                label="Platform health"
-                value={demoData?.health ?? 88}
-                suffix="/100"
-                tone="success"
-                demo={Boolean(demoData?.demo)}
+                label="Active projects"
+                value={activeProjectsCount}
+                suffix={overview ? `of ${overview.projects.total}` : undefined}
               />
-              <StatBlock label="Intent coverage" value={94} suffix="%" tone="accent" />
-              <StatBlock label="Growth lab" value="Online" tone="neutral" />
+              <StatBlock
+                label="Pages audited"
+                value={formatNumber(overview?.pages_audited ?? 0)}
+                suffix={overview?.open_actions ? `${overview.open_actions} open actions` : undefined}
+              />
+              <StatBlock
+                label="Mean health"
+                value={meanHealth ?? "—"}
+                suffix={meanHealth === null ? undefined : "/100"}
+                tone={healthTone}
+                demo={usingDemo}
+              />
+              <StatBlock
+                label="Last audit"
+                value={
+                  usingDemo
+                    ? "Sample"
+                    : relativeTime(overview?.last_audit?.finished_at ?? overview?.last_audit?.started_at)
+                }
+              />
             </>
           )}
         </div>
+
+        {overview?.last_audit && !usingDemo ? (
+          <p className="-mt-4 text-label text-ink-tertiary">
+            Most recent audit ran on project{" "}
+            <Link
+              href={`/projects/${overview.last_audit.project_id}`}
+              className="rounded-sm text-accent transition-opacity hover:opacity-80"
+            >
+              #{overview.last_audit.project_id}
+            </Link>{" "}
+            <time
+              dateTime={overview.last_audit.finished_at ?? overview.last_audit.started_at ?? undefined}
+              title={absoluteTime(overview.last_audit.finished_at ?? overview.last_audit.started_at)}
+            >
+              ({relativeTime(overview.last_audit.finished_at ?? overview.last_audit.started_at)})
+            </time>
+            , status {overview.last_audit.status}, {overview.last_audit.pages_crawled} pages.
+          </p>
+        ) : null}
 
         {showDemoParam && demoData ? (
           <Panel tone="interactive" className="flex flex-col gap-4">

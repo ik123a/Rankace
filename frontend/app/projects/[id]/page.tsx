@@ -1,20 +1,23 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   AlertTriangle,
   ArrowLeft,
+  Bot,
   ChevronRight,
   Download,
   ExternalLink,
   FlaskConical,
   Globe,
   HelpCircle,
-  RefreshCw
+  RefreshCw,
+  ShieldCheck
 } from "lucide-react";
 import { api, downloadBlob, getToken } from "../../../lib/api";
+import { absoluteTime, formatDuration, formatNumber, relativeTime } from "../../../lib/format";
 import { Button } from "../../../components/ui/button";
 import { DataTable, type Column } from "../../../components/ui/data-table";
 import { EmptyState } from "../../../components/ui/empty-state";
@@ -47,6 +50,7 @@ type Recommendation = {
 };
 
 type SeoScoreData = {
+  scored?: boolean;
   scores: { health: number; opportunity: number; breakdown: Record<string, number> };
   recommendations: Recommendation[];
 };
@@ -60,6 +64,7 @@ type PageRow = {
   word_count: number;
   internal_links: number;
   external_links: number;
+  in_links: number;
   indexable: boolean;
   depth: number;
 };
@@ -90,10 +95,42 @@ type ExperimentRow = {
   result: string;
 };
 type ArchitectureData = {
-  nodes: Array<{ id: number; url: string; depth: number; links: number }>;
-  orphans: Array<{ id: number; url: string; depth: number; links: number }>;
+  nodes: Array<{ id: number; url: string; depth: number; in_links: number; out_links: number }>;
+  orphans: Array<{ id: number; url: string; depth: number; in_links: number; out_links: number }>;
+  orphan_scan_available: boolean;
   topics: string[];
   detected: Record<string, boolean>;
+};
+
+type CrawlStatus = {
+  id?: number;
+  status: "none" | "running" | "done" | "error";
+  stale?: boolean;
+  pages_crawled?: number;
+  started_at?: string | null;
+  finished_at?: string | null;
+  error?: string;
+};
+
+type ReadinessSignal = {
+  key: string;
+  label: string;
+  status: "pass" | "warn" | "fail";
+  detail: string;
+  advice: string;
+};
+
+type CrawlerPolicy = { name: string; purpose: string; kind?: string; policy: string };
+
+type Readiness = {
+  score: number;
+  origin: string;
+  signals: ReadinessSignal[];
+  answer_crawlers: CrawlerPolicy[];
+  training_crawlers: CrawlerPolicy[];
+  pages_measured: number;
+  note: string;
+  cached: boolean;
 };
 
 const TAB_IDS = [
@@ -102,6 +139,7 @@ const TAB_IDS = [
   "keywords",
   "competitors",
   "architecture",
+  "readiness",
   "experiments",
   "report"
 ] as const;
@@ -120,6 +158,19 @@ function gapKind(level: string): StatusKind {
   if (level === "high") return "error";
   if (level === "medium") return "warning";
   return "success";
+}
+
+function signalKind(status: ReadinessSignal["status"]): StatusKind {
+  if (status === "pass") return "success";
+  if (status === "warn") return "warning";
+  return "error";
+}
+
+function policyKind(policy: string): StatusKind {
+  if (policy === "allowed") return "success";
+  if (policy === "blocked") return "error";
+  // No robots.txt, so no stated policy: allowed by protocol, but not declared.
+  return "neutral";
 }
 
 function toIntentClass(value: string): IntentClass {
@@ -153,9 +204,15 @@ export default function ProjectIntelligencePage() {
 
   const [loading, setLoading] = useState(true);
   const [crawling, setCrawling] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+  const [crawlStatus, setCrawlStatus] = useState<CrawlStatus | null>(null);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [error, setError] = useState("");
   const [filterSeverity, setFilterSeverity] = useState<string>("all");
+
+  const [readiness, setReadiness] = useState<Readiness | null>(null);
+  const [readinessLoading, setReadinessLoading] = useState(false);
+  const [readinessError, setReadinessError] = useState("");
 
   const [newCompetitorUrl, setNewCompetitorUrl] = useState("");
   const [addingCompetitor, setAddingCompetitor] = useState(false);
@@ -163,8 +220,11 @@ export default function ProjectIntelligencePage() {
   const [newExpTitle, setNewExpTitle] = useState("");
   const [newExpHypothesis, setNewExpHypothesis] = useState("");
   const [newExpVariant, setNewExpVariant] = useState("");
-  const [newExpBaselineCtr, setNewExpBaselineCtr] = useState("2.5");
-  const [newExpVariantCtr, setNewExpVariantCtr] = useState("3.8");
+  // Deliberately EMPTY. These used to default to 2.5 and 3.8, so a user who
+  // recorded an experiment without measuring anything saved a fabricated 3.8%
+  // variant CTR and a 1.3-point "lift" that then displayed as a measurement.
+  const [newExpBaselineCtr, setNewExpBaselineCtr] = useState("");
+  const [newExpVariantCtr, setNewExpVariantCtr] = useState("");
   const [addingExp, setAddingExp] = useState(false);
 
   async function loadAll() {
@@ -177,7 +237,7 @@ export default function ProjectIntelligencePage() {
     setError("");
 
     try {
-      const [proj, opps, techIssues, pgList, kwList, gapList, compList, expList, arch, intent] =
+      const [proj, opps, techIssues, pgList, kwList, gapList, compList, expList, arch, intent, status] =
         await Promise.all([
           api<Project>(`/api/projects/${id}`),
           api<SeoScoreData>(`/api/projects/${id}/opportunities`).catch(() => null),
@@ -190,7 +250,8 @@ export default function ProjectIntelligencePage() {
           api<ArchitectureData>(`/api/projects/${id}/architecture`).catch(() => null),
           api<{ intent: string; confidence: number; why: string }>(`/api/projects/${id}/intent`).catch(
             () => null
-          )
+          ),
+          api<CrawlStatus>(`/api/projects/${id}/crawl-status`).catch(() => null)
         ]);
 
       setProject(proj);
@@ -203,6 +264,7 @@ export default function ProjectIntelligencePage() {
       setExperiments(expList || []);
       setArchitecture(arch);
       setIntentData(intent);
+      setCrawlStatus(status);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load project details");
     } finally {
@@ -215,6 +277,58 @@ export default function ProjectIntelligencePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
+  // Deep-link the active tab. A seven-panel cockpit is worth bookmarking, and
+  // without this a refresh always threw the user back to Overview. The hash is
+  // read after mount rather than via useSearchParams so the page needs no
+  // Suspense boundary, and history.replaceState avoids polluting Back with one
+  // entry per tab click.
+  useEffect(() => {
+    const fromHash = window.location.hash.replace("#", "") as TabId;
+    if (TAB_IDS.includes(fromHash)) setActiveTab(fromHash);
+  }, []);
+
+  // Elapsed counter while the crawl request is in flight. The crawl is a single
+  // blocking POST that can run for minutes; a button that only says "Auditing"
+  // for two minutes reads as a hang.
+  useEffect(() => {
+    if (!crawling) return;
+    setElapsed(0);
+    const timer = window.setInterval(() => setElapsed((value) => value + 1), 1000);
+    return () => window.clearInterval(timer);
+  }, [crawling]);
+
+  const loadReadiness = useCallback(
+    async (force = false) => {
+      if (!id) return;
+      setReadinessLoading(true);
+      setReadinessError("");
+      try {
+        const data = await api<Readiness>(
+          `/api/projects/${id}/readiness${force ? "?refresh=true" : ""}`
+        );
+        setReadiness(data);
+      } catch (e) {
+        setReadinessError(e instanceof Error ? e.message : "Readiness audit failed");
+      } finally {
+        setReadinessLoading(false);
+      }
+    },
+    [id]
+  );
+
+  useEffect(() => {
+    if (activeTab !== "readiness") return;
+    // Fetched on first visit to the tab, not on page load: it costs three
+    // outbound requests to the audited site and most visits never open it.
+    if (!readiness && !readinessLoading && !readinessError) loadReadiness();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
+
+  function selectTab(next: TabId) {
+    setActiveTab(next);
+    window.history.replaceState(null, "", `#${next}`);
+  }
+
   async function handleTriggerCrawl() {
     if (!id) return;
     setCrawling(true);
@@ -222,8 +336,16 @@ export default function ProjectIntelligencePage() {
     try {
       await api(`/api/projects/${id}/crawl`, { method: "POST" });
       await loadAll();
+      // The readiness audit measures schema coverage and JS-shell counts from
+      // the rows this crawl just replaced, so a cached report is now stale.
+      setReadiness(null);
+      if (activeTab === "readiness") await loadReadiness(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Crawl failed");
+      // A failed crawl still writes an error session server-side; re-read so
+      // the status strip shows the real outcome rather than the old one.
+      const status = await api<CrawlStatus>(`/api/projects/${id}/crawl-status`).catch(() => null);
+      setCrawlStatus(status);
     } finally {
       setCrawling(false);
     }
@@ -249,10 +371,14 @@ export default function ProjectIntelligencePage() {
     if (!newCompetitorUrl.trim() || !id) return;
     setAddingCompetitor(true);
     try {
-      await api(`/api/projects/${id}/competitors`, {
+      const created = await api<{ fetch_error?: string }>(`/api/projects/${id}/competitors`, {
         method: "POST",
         body: JSON.stringify({ url: newCompetitorUrl })
       });
+      // The competitor is still recorded so the comparison can be retried, but
+      // an unreadable page is now REPORTED. It used to be saved as a blank row
+      // with 0 words and 0% similarity, indistinguishable from a real result.
+      setError(created?.fetch_error || "");
       setNewCompetitorUrl("");
       const comps = await api<CompetitorRow[]>(`/api/projects/${id}/competitors`);
       setCompetitors(comps);
@@ -266,7 +392,19 @@ export default function ProjectIntelligencePage() {
   async function handleCreateExperiment(e: React.FormEvent) {
     e.preventDefault();
     if (!newExpTitle.trim() || !id) return;
+    const baseline = newExpBaselineCtr.trim() === "" ? 0 : Number(newExpBaselineCtr);
+    const variant = newExpVariantCtr.trim() === "" ? 0 : Number(newExpVariantCtr);
+    if (!Number.isFinite(baseline) || !Number.isFinite(variant)) {
+      setError("Click-through rates must be numbers between 0 and 100.");
+      return;
+    }
+    if (baseline < 0 || baseline > 100 || variant < 0 || variant > 100) {
+      setError("Click-through rates must be between 0 and 100.");
+      return;
+    }
+    const measured = newExpBaselineCtr.trim() !== "" && newExpVariantCtr.trim() !== "";
     setAddingExp(true);
+    setError("");
     try {
       await api(`/api/experiments?project_id=${id}`, {
         method: "POST",
@@ -274,15 +412,23 @@ export default function ProjectIntelligencePage() {
           title: newExpTitle,
           hypothesis: newExpHypothesis,
           variant: newExpVariant,
-          baseline_ctr: parseFloat(newExpBaselineCtr) || 0,
-          variant_ctr: parseFloat(newExpVariantCtr) || 0,
-          status: "running",
-          result: "Experiment active; tracking baseline vs variant CTR progress."
+          baseline_ctr: baseline,
+          variant_ctr: variant,
+          // A hypothesis with no figures is a draft, not a running test. The
+          // old body always sent "running" and a result sentence claiming the
+          // experiment was tracking, so an empty form produced a live-looking
+          // experiment that had never been measured.
+          status: measured ? "running" : "draft",
+          result: measured
+            ? "Baseline and variant recorded. Update the variant figure as data arrives."
+            : "Hypothesis logged. No CTR measured yet; add baseline and variant figures to track lift."
         })
       });
       setNewExpTitle("");
       setNewExpHypothesis("");
       setNewExpVariant("");
+      setNewExpBaselineCtr("");
+      setNewExpVariantCtr("");
       const exps = await api<ExperimentRow[]>(`/api/experiments?project_id=${id}`);
       setExperiments(exps);
     } catch (e) {
@@ -346,9 +492,14 @@ export default function ProjectIntelligencePage() {
     { key: "words", header: "Words", numeric: true, render: (row) => row.word_count.toLocaleString() },
     {
       key: "links",
-      header: "In / Out",
+      header: "Links in / out",
       numeric: true,
-      render: (row) => `${row.internal_links} / ${row.external_links}`
+      // `internal_links` is the number of internal links ON the page. The
+      // column used to read "In / Out" next to it, which labelled out-links as
+      // in-links. In-links now come from the crawl's link graph; on a project
+      // crawled before that existed they are unknown, not zero, so a dash is
+      // shown instead of a false 0.
+      render: (row) => `${inLinksAvailable ? row.in_links : "—"} / ${row.internal_links}`
     },
     {
       key: "indexable",
@@ -425,15 +576,57 @@ export default function ProjectIntelligencePage() {
     }
   ];
 
+  const crawlerColumns: ReadonlyArray<Column<CrawlerPolicy>> = [
+    {
+      key: "name",
+      header: "Crawler",
+      render: (row) => <span className="font-mono text-mono-data">{row.name}</span>
+    },
+    { key: "purpose", header: "What it does", render: (row) => row.purpose },
+    {
+      key: "policy",
+      header: "Policy",
+      align: "right",
+      render: (row) => (
+        <StatusTag
+          kind={policyKind(row.policy)}
+          label={row.policy === "unknown" ? "not stated" : row.policy}
+        />
+      )
+    }
+  ];
+
   const tabItems = [
     { id: "overview", label: "Overview" },
     { id: "technical", label: `Technical SEO (${issues.length})` },
     { id: "keywords", label: `Keywords (${keywords.length})` },
     { id: "competitors", label: `Gaps (${gaps.length})` },
     { id: "architecture", label: "Architecture" },
+    { id: "readiness", label: "AI search" },
     { id: "experiments", label: `Experiments (${experiments.length})` },
     { id: "report", label: "Report" }
   ];
+
+  const hasAudit = crawlStatus?.status === "done" || Boolean(scoreData?.scored);
+
+  const crawlStatusLabel =
+    crawling || crawlStatus?.status === "running"
+      ? "Auditing"
+      : crawlStatus?.status === "error"
+        ? "Last audit failed"
+        : crawlStatus?.status === "done"
+          ? "Audit complete"
+          : "No audit yet";
+  const crawlStatusKind: StatusKind =
+    crawling || crawlStatus?.status === "running"
+      ? "info"
+      : crawlStatus?.status === "error"
+        ? "error"
+        : crawlStatus?.status === "done"
+          ? "success"
+          : "neutral";
+  const lastCrawlAt = crawlStatus?.finished_at ?? crawlStatus?.started_at;
+  const inLinksAvailable = architecture?.orphan_scan_available ?? false;
 
   return (
     <div className="min-h-[100dvh] bg-canvas">
@@ -502,6 +695,50 @@ export default function ProjectIntelligencePage() {
       </header>
 
       <main id="main" className="shell shell-content flex flex-col gap-6 pb-16 pt-6">
+        {/* Crawl state used to be invisible: /crawl-status existed and nothing
+            read it, so a failed or never-run audit looked exactly like a fresh
+            project and a killed run stayed "in progress" with no way to tell. */}
+        <Panel className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 py-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-3">
+            <StatusTag kind={crawlStatusKind} label={crawlStatusLabel} />
+            <p className="min-w-0 text-body-s text-ink-secondary">
+              {crawling ? (
+                <>
+                  Crawl running ·{" "}
+                  <span data-numeric className="font-mono text-ink-primary">
+                    {formatDuration(elapsed)}
+                  </span>{" "}
+                  elapsed
+                </>
+              ) : crawlStatus?.status === "error" ? (
+                crawlStatus.error || "The last audit did not complete."
+              ) : crawlStatus?.status === "done" ? (
+                <>
+                  <span data-numeric className="font-mono text-ink-primary">
+                    {formatNumber(crawlStatus.pages_crawled ?? 0)}
+                  </span>{" "}
+                  pages recorded from the last audit.
+                </>
+              ) : (
+                "Run the first audit to record technical findings and scores."
+              )}
+            </p>
+          </div>
+          {lastCrawlAt ? (
+            <time
+              dateTime={lastCrawlAt}
+              title={absoluteTime(lastCrawlAt)}
+              className="font-mono text-mono-micro uppercase text-ink-tertiary"
+            >
+              {relativeTime(lastCrawlAt)}
+            </time>
+          ) : (
+            <Button size="sm" variant="secondary" onClick={handleTriggerCrawl} loading={crawling}>
+              Run audit
+            </Button>
+          )}
+        </Panel>
+
         {error ? (
           <p className="flex items-center gap-2 rounded-md border border-status-error/30 bg-status-error/10 px-4 py-3 text-body-s text-status-error">
             <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
@@ -510,34 +747,54 @@ export default function ProjectIntelligencePage() {
         ) : null}
 
         <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          <Panel className="flex items-center justify-center">
+          <Panel className="flex min-h-[8.5rem] items-center justify-center">
             {loading ? (
               <Skeleton className="h-24 w-24 rounded-pill" />
-            ) : (
+            ) : scoreData?.scored ? (
               <ScoreMeter
-                value={scoreData?.scores.health ?? 0}
+                value={scoreData.scores.health}
                 variant="ring"
                 size="lg"
                 label="SEO health"
               />
+            ) : (
+              // No audit has run. A 0/100 ring is not a score, it is an
+              // absence, and it rendered as a failing health result.
+              <div className="flex flex-col items-center gap-2 py-2 text-center">
+                <span className="font-mono text-title-l text-ink-tertiary">–</span>
+                <span className="text-label text-ink-secondary">SEO health</span>
+                <span className="font-mono text-mono-micro uppercase text-ink-tertiary">
+                  Not scored
+                </span>
+              </div>
             )}
           </Panel>
           <StatBlock
             label="Visibility potential"
-            value={scoreData?.scores.opportunity ?? 0}
-            suffix="/100"
+            value={scoreData?.scored ? scoreData.scores.opportunity : "—"}
+            suffix={scoreData?.scored ? "/100" : undefined}
             tone="accent"
             loading={loading}
           />
-          <StatBlock label="Critical issues" value={criticalIssuesCount} tone="error" loading={loading} />
-          <StatBlock label="High severity" value={highIssuesCount} tone="warning" loading={loading} />
+          <StatBlock
+            label="Critical issues"
+            value={hasAudit ? criticalIssuesCount : "—"}
+            tone="error"
+            loading={loading}
+          />
+          <StatBlock
+            label="High severity"
+            value={hasAudit ? highIssuesCount : "—"}
+            tone="warning"
+            loading={loading}
+          />
           <StatBlock label="Audited endpoints" value={pages.length} loading={loading} />
         </section>
 
         <Tabs
           ariaLabel="Project intelligence sections"
           value={activeTab}
-          onChange={(next) => setActiveTab(next as TabId)}
+          onChange={(next) => selectTab(next as TabId)}
           items={tabItems}
           className="scroll-x"
         />
@@ -556,8 +813,9 @@ export default function ProjectIntelligencePage() {
                       <div className="flex flex-wrap items-center gap-3">
                         <IntentTag intent={toIntentClass(intentData.intent)} />
                         <ScoreMeter
-                          value={Math.round((intentData.confidence || 0.8) * 100)}
+                          value={Math.round(intentData.confidence * 100)}
                           variant="inline"
+                          showHealthWord={false}
                         />
                       </div>
                     </div>
@@ -569,7 +827,7 @@ export default function ProjectIntelligencePage() {
                 </Panel>
               ) : null}
 
-              {scoreData?.scores.breakdown ? (
+              {scoreData?.scored && Object.keys(scoreData.scores.breakdown).length > 0 ? (
                 <Panel>
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
                     <h2 className="text-title-m text-ink-primary">Visibility breakdown</h2>
@@ -586,6 +844,13 @@ export default function ProjectIntelligencePage() {
                       <ScoreMeter key={category} value={value} label={category} size="md" />
                     ))}
                   </div>
+                  {!("Content Gap" in scoreData.scores.breakdown) ? (
+                    <p className="mt-5 border-t border-line-subtle pt-3 text-body-s text-ink-tertiary">
+                      Content Gap is excluded from the weighted score because no competitor has been
+                      analysed. It is not a perfect result – it is an unmeasured axis. Add a competitor in
+                      the Gaps tab to include it.
+                    </p>
+                  ) : null}
                 </Panel>
               ) : null}
 
@@ -658,25 +923,25 @@ export default function ProjectIntelligencePage() {
 
           {activeTab === "technical" ? (
             <>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="font-mono text-mono-micro uppercase text-ink-tertiary">Severity</span>
-                {SEVERITIES.map((severity) => {
-                  const count =
+              {/* Filter pills, matching the dashboard roster and the declared
+                  design contract. These were five filled BUTTONS, so the
+                  active filter looked like the page's primary action. */}
+              <Tabs
+                variant="pill"
+                mode="filter"
+                ariaLabel="Filter technical findings by severity"
+                value={filterSeverity}
+                onChange={setFilterSeverity}
+                items={SEVERITIES.map((severity) => ({
+                  id: severity,
+                  label: `${severity} (${
                     severity === "all"
                       ? issues.length
-                      : issues.filter((issue) => issue.severity === severity).length;
-                  return (
-                    <Button
-                      key={severity}
-                      variant={filterSeverity === severity ? "primary" : "secondary"}
-                      size="sm"
-                      onClick={() => setFilterSeverity(severity)}
-                    >
-                      {severity} ({count})
-                    </Button>
-                  );
-                })}
-              </div>
+                      : issues.filter((issue) => issue.severity === severity).length
+                  })`
+                }))}
+                className="w-fit"
+              />
 
               <DataTable
                 caption="Technical diagnostic findings"
@@ -818,13 +1083,21 @@ export default function ProjectIntelligencePage() {
               <div className="grid gap-3 md:grid-cols-2">
                 <Panel>
                   <h2 className="text-title-m text-ink-primary">
-                    Orphan pages ({architecture?.orphans?.length || 0})
+                    {inLinksAvailable
+                      ? `Orphan pages (${architecture?.orphans?.length || 0})`
+                      : "Orphan pages"}
                   </h2>
                   <p className="mt-2 text-body-s text-ink-secondary">
-                    Pages with zero internal in-links below the root. Crawlers may never reach them.
+                    Pages no other internal page links to. Crawlers reach pages by following links, so
+                    an orphan is invisible unless it is in the sitemap.
                   </p>
                   <div className="mt-4 flex flex-col gap-2">
-                    {(architecture?.orphans || []).length === 0 ? (
+                    {!inLinksAvailable ? (
+                      <p className="rounded-sm border border-line-subtle bg-surface-sunken px-3 py-2 text-body-s text-ink-secondary">
+                        This project was crawled before in-link counting existed. Re-crawl to measure
+                        orphans – existing rows cannot tell &ldquo;no links in&rdquo; from &ldquo;not counted&rdquo;.
+                      </p>
+                    ) : (architecture?.orphans || []).length === 0 ? (
                       <StatusTag kind="success" label="No orphan pages detected" />
                     ) : (
                       architecture?.orphans.map((orphan) => (
@@ -894,9 +1167,9 @@ export default function ProjectIntelligencePage() {
                               <p className="mt-0.5 truncate font-mono text-mono-micro text-ink-tertiary">
                                 {page.url}
                               </p>
-                              <div className="mt-3 flex items-center justify-between border-t border-line-subtle pt-2">
+                              <div className="mt-3 flex items-center justify-between gap-2 border-t border-line-subtle pt-2">
                                 <span className="font-mono text-mono-micro text-ink-tertiary">
-                                  In-links {page.internal_links}
+                                  {inLinksAvailable ? `In ${page.in_links} · ` : ""}Out {page.internal_links}
                                 </span>
                                 <StatusTag
                                   kind={page.status_code === 200 ? "success" : "error"}
@@ -911,6 +1184,117 @@ export default function ProjectIntelligencePage() {
                   })}
                 </div>
               </Panel>
+            </>
+          ) : null}
+
+          {activeTab === "readiness" ? (
+            <>
+              {readinessLoading && !readiness ? (
+                <div className="grid gap-3 md:grid-cols-2">
+                  {Array.from({ length: 4 }, (_, index) => (
+                    <Panel key={index}>
+                      <Skeleton className="h-4 w-40" />
+                      <Skeleton className="mt-3 h-3 w-full" />
+                      <Skeleton className="mt-2 h-3 w-2/3" />
+                    </Panel>
+                  ))}
+                </div>
+              ) : readinessError ? (
+                <Panel className="flex flex-col items-start gap-3">
+                  <p className="flex items-center gap-2 text-body-s text-status-error">
+                    <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    {readinessError}
+                  </p>
+                  <Button size="sm" variant="secondary" onClick={() => loadReadiness(true)}>
+                    <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+                    Try again
+                  </Button>
+                </Panel>
+              ) : readiness ? (
+                <>
+                  <Panel variant="hero" className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
+                    <div className="flex flex-wrap items-center gap-6">
+                      <ScoreMeter value={readiness.score} variant="ring" size="lg" label="AI readiness" />
+                      <div className="min-w-0">
+                        <h2 className="flex items-center gap-2 text-title-l text-ink-primary">
+                          <Bot className="h-4 w-4 text-accent" aria-hidden="true" />
+                          Can answer engines read this site?
+                        </h2>
+                        <p className="measure mt-2 text-body-s text-ink-secondary">{readiness.note}</p>
+                        <p className="mt-2 font-mono text-mono-micro uppercase text-ink-tertiary">
+                          {readiness.origin} · {readiness.pages_measured}{" "}
+                          {readiness.pages_measured === 1 ? "page" : "pages"} measured
+                          {readiness.cached ? " · cached" : ""}
+                        </p>
+                      </div>
+                    </div>
+                    <Button
+                      variant="secondary"
+                      onClick={() => loadReadiness(true)}
+                      loading={readinessLoading}
+                    >
+                      <RefreshCw className="h-4 w-4" aria-hidden="true" />
+                      Re-check live files
+                    </Button>
+                  </Panel>
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {readiness.signals.map((item) => (
+                      <Panel key={item.key} tone="interactive" className="flex flex-col gap-3">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <h3 className="text-title-m text-ink-primary">{item.label}</h3>
+                          <StatusTag
+                            kind={signalKind(item.status)}
+                            label={
+                              item.status === "fail"
+                                ? "action needed"
+                                : item.status === "warn"
+                                  ? "review"
+                                  : "ready"
+                            }
+                          />
+                        </div>
+                        <p className="text-body-s text-ink-secondary">{item.detail}</p>
+                        <p className="mt-auto border-t border-line-subtle pt-3 text-body-s text-ink-tertiary">
+                          {item.advice}
+                        </p>
+                      </Panel>
+                    ))}
+                  </div>
+
+                  <Panel variant="flush" className="overflow-hidden">
+                    <div className="border-b border-line-subtle px-4 py-3">
+                      <h2 className="flex items-center gap-2 text-title-m text-ink-primary">
+                        <ShieldCheck className="h-4 w-4 text-accent" aria-hidden="true" />
+                        Crawler policy, read from robots.txt
+                      </h2>
+                      <p className="mt-1 text-body-s text-ink-secondary">
+                        Index crawlers decide whether this site can be cited at all. Training crawlers
+                        are a separate licensing decision.
+                      </p>
+                    </div>
+                    <DataTable
+                      caption="AI crawler access policy"
+                      columns={crawlerColumns}
+                      rows={[...readiness.answer_crawlers, ...readiness.training_crawlers]}
+                      rowKey={(row) => row.name}
+                      emptyTitle="No crawler policy"
+                      emptyBody="robots.txt could not be read, so no policy is stated."
+                      className="rounded-none border-0 shadow-none"
+                    />
+                  </Panel>
+                </>
+              ) : (
+                <EmptyState
+                  title="Readiness not measured"
+                  body="Run the check to audit robots.txt, sitemap.xml, llms.txt and the stored crawl."
+                  action={
+                    <Button size="sm" onClick={() => loadReadiness(true)} loading={readinessLoading}>
+                      Run readiness check
+                    </Button>
+                  }
+                />
+              )}
             </>
           ) : null}
 
@@ -956,15 +1340,21 @@ export default function ProjectIntelligencePage() {
                       label="Baseline CTR (%)"
                       type="number"
                       step="0.1"
+                      min="0"
+                      max="100"
                       value={newExpBaselineCtr}
                       onChange={(e) => setNewExpBaselineCtr(e.target.value)}
+                      helper="From your analytics. Leave blank until measured."
                     />
                     <Input
                       label="Variant CTR (%)"
                       type="number"
                       step="0.1"
+                      min="0"
+                      max="100"
                       value={newExpVariantCtr}
                       onChange={(e) => setNewExpVariantCtr(e.target.value)}
+                      helper="Leave blank until the variant has data."
                     />
                     <Button type="submit" loading={addingExp}>
                       Record experiment
@@ -986,7 +1376,16 @@ export default function ProjectIntelligencePage() {
                       <Panel key={experiment.id} tone="interactive">
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <h3 className="text-title-m text-ink-primary">{experiment.title}</h3>
-                          <StatusTag kind="info" label={experiment.status} />
+                          <StatusTag
+                            kind={
+                              experiment.status === "complete"
+                                ? "success"
+                                : experiment.status === "running"
+                                  ? "info"
+                                  : "neutral"
+                            }
+                            label={experiment.status}
+                          />
                         </div>
                         <div className="mt-4 grid gap-4 sm:grid-cols-3">
                           <div>
@@ -1004,7 +1403,9 @@ export default function ProjectIntelligencePage() {
                           <div>
                             <p className="font-mono text-mono-micro uppercase text-ink-tertiary">Lift</p>
                             <p className="mt-1 font-mono text-mono-data text-ink-primary">
-                              {experiment.baseline_ctr}% → {experiment.variant_ctr}% ({lift.toFixed(1)})
+                              {experiment.baseline_ctr === 0 && experiment.variant_ctr === 0
+                                ? "Not measured yet"
+                                : `${experiment.baseline_ctr}% → ${experiment.variant_ctr}% (${lift > 0 ? "+" : ""}${lift.toFixed(1)})`}
                             </p>
                           </div>
                         </div>

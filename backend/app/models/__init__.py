@@ -61,9 +61,15 @@ class Page(Base):
     images_missing_alt: Mapped[int] = mapped_column(Integer, default=0)
     internal_links: Mapped[int] = mapped_column(Integer, default=0)
     external_links: Mapped[int] = mapped_column(Integer, default=0)
+    # Internal pages linking TO this one. See crawler._count_in_links.
+    in_links: Mapped[int] = mapped_column(Integer, default=0)
     indexable: Mapped[bool] = mapped_column(Boolean, default=True)
     depth: Mapped[int] = mapped_column(Integer, default=0)
     content_text: Mapped[str] = mapped_column(Text, default="")
+    # Crawl signals persisted for the readiness audit. Both were extracted on
+    # every crawl before this and stored nowhere, so no report could use them.
+    schema_types: Mapped[str] = mapped_column(Text, default="[]")
+    is_spa_shell: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class TechnicalIssue(Base):

@@ -25,10 +25,16 @@ export function ThemeToggle({ className = "" }: { className?: string }) {
       className={`inline-flex items-center gap-0.5 rounded-pill border border-line-subtle bg-surface-sunken p-0.5 ${className}`}
     >
       {options.map(({ value, label, Icon }) => {
-        // Before mount the real theme is unknown. Marking nothing active
-        // avoids a wrong highlight for one frame; aria-checked still reports
-        // the dark default so assistive tech gets a stable answer.
-        const active = mounted && (value === "system" ? followingSystem : value === theme);
+        // Exactly ONE radio may be checked in a radiogroup.
+        //
+        // The previous expression evaluated `followingSystem` for the System
+        // option and `value === theme` for the others INDEPENDENTLY, so while
+        // following the OS both "System" and the resolved theme were checked
+        // at once -- measured in the accessibility tree as Dark AND System
+        // both aria-checked=true. The OS-following state must suppress the
+        // concrete-theme highlight entirely, which is what the ternary below
+        // does: system mode selects System; a stored choice selects that theme.
+        const active = mounted && (followingSystem ? value === "system" : value === theme);
         return (
           <button
             key={value}

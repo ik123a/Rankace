@@ -24,7 +24,13 @@ def classify_intent(query: str) -> dict:
         reasons.append("looks like a brand/domain navigation query")
     if not q:
         return {"intent": "Informational", "confidence": 0.0, "why": "Empty query defaults to Informational.", "scores": scores}
+    fallback = False
     if sum(scores.values()) == 0:
+        # No signal at all. The class below is a DEFAULT, not a classification
+        # -- and reporting it at 1.0 confidence (which the ratio did, because
+        # the default was the only vote cast) told the user the model was
+        # certain when it had found nothing to be certain about.
+        fallback = True
         if len(q.split()) >= 5:
             scores["Informational"] += 1
             reasons.append("long question-like query, defaulting to Informational")
@@ -34,6 +40,9 @@ def classify_intent(query: str) -> dict:
     best = max(scores, key=lambda k: scores[k])
     total = sum(scores.values())
     confidence = round(scores[best] / total, 2) if total else 0.0
+    if fallback:
+        # Cap the default. It is a guess, and the UI shows this number.
+        confidence = min(confidence, 0.35)
     try:
         from sklearn.feature_extraction.text import TfidfVectorizer  # noqa: F401
     except Exception:
