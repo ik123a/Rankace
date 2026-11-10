@@ -267,7 +267,7 @@ export default function LandingPage() {
                 line held only "back" -- 190px of a 1024px box, 19% fill.
                 46rem keeps three lines while lifting the rag to 34%, the
                 widest fill available without spilling to four lines. */}
-            <h1 className="mt-6 max-w-[46rem] text-display-xl text-ink-primary">
+            <h1 aria-label={HEADLINE.join(" ")} className="mt-6 max-w-[46rem] text-display-xl text-ink-primary">
               {HEADLINE.map((word, index) => (
                 <span
                   key={`${word}-${index}`}
