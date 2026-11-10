@@ -1,5 +1,54 @@
 # RANKACE
 
+## Verified source review — 10 November 2026
+
+This repository contains an implemented SEO research application: a FastAPI/SQLAlchemy backend, Next.js frontend, and Manifest V3 browser extension. Intent classification uses explicit linguistic rules; similarity/clustering use TF-IDF/KMeans when available, with simpler fallbacks. Opportunity, content gaps and AI-readiness are heuristic diagnostics, not measured search rankings or validated predictions. The topic-gap hints are travel-oriented rather than a general learned topic model.
+
+### Repairs and actual checks
+
+- **Robots redirect boundary:** the robots loader previously used an independent automatically-following HTTP client. It now uses the same validated redirect path as other crawl resources. A mocked redirect to a private address verifies that no second/private request is made.
+- **HTTP fallback parsing:** when Scrapling fetching was unavailable, an `httpx.Response` reached a selector-only extractor and produced empty failed pages. A BeautifulSoup/lxml fallback now extracts the same main SEO fields. Regression fixtures verify actual title, headings, metadata, links, schema and indexability.
+- **Accessible hero heading:** animated word spans had no semantic spaces. The hero now exposes the original spaced headline as its accessible name without changing the visual composition.
+- Two initial crawler regressions failed for the reproduced causes before repairs. `cd backend && python tests/run_offline.py` then passed **29 tests**, with 12 lxml deprecation warnings. The runner supplies deterministic DNS fixtures, blocks socket connections and excludes database/auth tests. It requires the backend dependencies, `pytest`, and Scrapling parser for the existing parser tests; this audit reused the provided Python environment rather than claiming a clean-room install.
+- `python backend/scripts/scoring_regression.py`: **21/21 passed**, synthetic pages only.
+- `cd frontend && npm ci --ignore-scripts --no-audit --no-fund`: passed (171 packages). `npm run build`: passed after the heading correction, including type checking and route generation.
+- `node --check extension/background.js`, `content.js`, and `sidepanel.js`: passed. These are syntax checks, not proof of an installed/working extension or auto-fix safety.
+- The final production landing page rendered in fresh Edge desktop1440×900/mobile390×844 contexts with both dark/light preferences and reduced motion. Each had the exact spaced accessible heading, one selected theme radio, zero page errors and no horizontal overflow. No backend, login, provider, crawling, email, account, extension installation or real-site action was invoked by those browser checks.
+
+### Source flow
+
+```mermaid
+flowchart LR
+  UI[Next.js frontend] --> API[FastAPI project endpoints]
+  API --> DB[SQLAlchemy project and crawl records]
+  API --> Crawl[Crawler: guarded redirects and HTML extraction]
+  Crawl --> Analyze[Technical rules, intent, topic gaps, scoring]
+  Analyze --> DB
+  API --> Report[PDF report generation]
+  Ext[Browser extension] --> DOM[Current-page DOM inspection]
+```
+
+The diagram describes source relationships. Full authenticated workflows, PostgreSQL/Redis deployment, live crawling and browser-extension integration were not verified in this review.
+
+### Actual local captures
+
+![Local production desktop, dark preference](docs/images/landing-desktop-dark.png)
+
+![Local production mobile, light preference](docs/images/landing-mobile-light.png)
+
+[Desktop light](docs/images/landing-desktop-light.png) · [Mobile dark](docs/images/landing-mobile-dark.png)
+
+These are genuine local landing renders, not generated design mockups. Older screenshots, reports, download bundles and historical verification claims below are preserved as project artifacts; they were not regenerated or independently validated by this audit.
+
+### Open boundaries
+
+The configured JWT/demo defaults are for local development and require deployment review. The URL validator still accepts a hostname after DNS lookup errors and checks DNS separately from the eventual connection, so DNS rebinding/error-path safety is not established. Robots-fetch failures still produce an unknown policy and allow the existing crawl fallback. Do not describe this snapshot as production hardened. No credential rotation, history cleanup, authentication/database mutation or live deployment was performed.
+
+Rollback: revert the review commit to restore the prior crawler, heading and documentation. Existing license and historical provenance remain unchanged.
+
+---
+
+
 > **"Understand Rankings. Find Opportunities. Grow Visibility."**
 
 AI-powered SEO intelligence and search visibility platform for websites that want to discover where their next organic search-growth opportunity is hiding.
@@ -21,7 +70,7 @@ Instead of claiming to know Google's secret formula, Rankace computes **Search V
 - **Robots-Compliant Web Crawler**:
   - Full internal link crawl engine built with `httpx`, `BeautifulSoup`, and `lxml`.
   - Respects `robots.txt` directives and crawl delays.
-  - Implements strict Server-Side Request Forgery (SSRF) defense against private IP ranges and localhost.
+  - Rejects known private/internal addresses and validates redirect hops, but DNS validation is not connection-pinned and DNS lookup errors currently fail open; this is not a complete SSRF boundary.
   - Detects redirects, canonical tags, page response times, and click depth.
 
 - **Automated Technical SEO Analyzer**:
@@ -76,7 +125,7 @@ Instead of claiming to know Google's secret formula, Rankace computes **Search V
 ### Backend
 - **Framework**: FastAPI (Python 3.10+)
 - **Validation**: Pydantic v2 & Pydantic Settings
-- **ORM & Database**: SQLAlchemy 2.0 (SQLite default fallback; PostgreSQL production-ready)
+- **ORM & Database**: SQLAlchemy 2.0 (SQLite default fallback; PostgreSQL configurable; production deployment unverified)
 - **Security**: Direct `bcrypt` password hashing + JSON Web Tokens (`python-jose`)
 - **HTTP & Parsing**: `httpx`, `beautifulsoup4`, `lxml`
 - **NLP & ML**: `scikit-learn` (TF-IDF vectorizers, cosine similarity, KMeans clustering)

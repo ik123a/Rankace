@@ -84,12 +84,11 @@ def _robots_allowed(base: str, user_agent: str) -> robotparser.RobotFileParser |
     try:
         parsed = urlparse(base)
         robots_url = f"{parsed.scheme}://{parsed.netloc}/robots.txt"
-        with httpx.Client(headers=STEALTH_HEADERS, follow_redirects=True, timeout=10) as client:
-            resp = client.get(robots_url)
-            if resp.status_code == 200:
-                rp = robotparser.RobotFileParser()
-                rp.parse(resp.text.splitlines())
-                return rp
+        status, text = fetch_text(robots_url, timeout=10)
+        if status == 200:
+            rp = robotparser.RobotFileParser()
+            rp.parse(text.splitlines())
+            return rp
     except Exception:
         pass
     return None
@@ -97,6 +96,9 @@ def _robots_allowed(base: str, user_agent: str) -> robotparser.RobotFileParser |
 
 def extract_page_data(sel, url: str, status_code: int, elapsed_ms: int, depth: int, start_url: str) -> CrawledPage:
     """Extract full SEO data using Scrapling's high-speed C-backed Selector."""
+    if isinstance(sel, httpx.Response):
+        return _extract_soup_page_data(sel.text, url, status_code, elapsed_ms, depth, start_url)
+
     # 1. Title
     title = (sel.css("title::text").get() or "").strip()
 
@@ -229,6 +231,61 @@ def extract_page_data(sel, url: str, status_code: int, elapsed_ms: int, depth: i
         schema_types=schema_types,
         og_title=og_title,
         is_spa_shell=is_spa_shell,
+    )
+
+
+def _extract_soup_page_data(html: str, url: str, status: int, elapsed: int, depth: int, start: str) -> CrawledPage:
+    """Parse the httpx fallback without requiring Scrapling selectors."""
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(html, "lxml")
+    def meta(key: str, value: str) -> str:
+        node = soup.find("meta", attrs={key: lambda item: isinstance(item, str) and item.lower() == value})
+        return str(node.get("content", "")).strip() if node else ""
+
+    headings = soup.find_all("h1")
+    if not headings:
+        headings = soup.select('[role="heading"][aria-level="1"]')
+    robots = set()
+    for node in soup.find_all("meta", attrs={"name": lambda item: isinstance(item, str) and item.lower() == "robots"}):
+        robots.update(str(node.get("content", "")).lower().replace(",", " ").split())
+    canonical = soup.find("link", rel=lambda item: isinstance(item, str) and item.lower() == "canonical")
+    images = soup.find_all("img")
+    links = [str(node.get("href", "")) for node in soup.select("a[href]")]
+    out_links = [norm for href in links if (norm := normalize_url(start, href))]
+    schema_types = []
+    for node in soup.find_all("script", type="application/ld+json"):
+        try:
+            data = json.loads(node.get_text())
+            for item in data if isinstance(data, list) else [data]:
+                if isinstance(item, dict) and "@type" in item:
+                    schema_types.append(item["@type"])
+        except (ValueError, TypeError):
+            pass
+    has_app_root = bool(soup.select("#__next, #root, #app, [data-reactroot]"))
+    h1 = " ".join(node.get_text(" ", strip=True) for node in headings)
+    h2_list = [node.get_text(" ", strip=True) for node in soup.find_all("h2")][:20]
+    title = soup.title.get_text(" ", strip=True) if soup.title else ""
+    description = meta("name", "description")
+    og_title = meta("property", "og:title")
+    for node in soup.select("script, style, noscript, svg"):
+        node.decompose()
+    body = soup.body
+    text = " ".join(body.get_text(" ", strip=True).split()) if body else ""
+    return CrawledPage(
+        url=url, status_code=status, load_time_ms=elapsed, title=title,
+        meta_description=description, h1=h1, h1_count=len(headings), h2_list=h2_list,
+        canonical=str(canonical.get("href", "")).strip() if canonical else "",
+        word_count=len(text.split()), images_total=len(images),
+        images_missing_alt=sum(not str(node.get("alt", "")).strip()
+            and node.get("role") not in ("presentation", "none")
+            and node.get("aria-hidden") != "true" for node in images),
+        internal_links=len(out_links),
+        external_links=sum(href.startswith("http") and normalize_url(start, href) is None for href in links),
+        indexable=not bool(robots.intersection({"noindex", "none"})), depth=depth,
+        content_text=text[:20000], out_links=list(dict.fromkeys(out_links))[:200],
+        schema_types=schema_types, og_title=og_title,
+        is_spa_shell=len(text.split()) < 30 and has_app_root,
     )
 
 
