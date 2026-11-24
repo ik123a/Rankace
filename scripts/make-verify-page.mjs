@@ -1,10 +1,9 @@
-// Builds extension/_verify.html: a deliberately broken page with the real
-// content.js inlined, so the auto-fix engine can be driven in a plain browser.
+// Builds extension/_verify.html: a deliberately broken page that loads the real
+// content.js, so the auto-fix engine can be driven in a plain browser.
 import fs from "node:fs";
 import path from "node:path";
 
 const root = process.cwd();
-const contentJs = fs.readFileSync(path.join(root, "extension", "content.js"), "utf8");
 
 const noAltImgs = Array.from({ length: 8 }, (_, i) =>
   `<img src="gallery/photo-${i}.png" width="300" height="200">`
@@ -50,9 +49,8 @@ const chromeStub = `<script>
   };
 </script>`;
 
-// Callback replacement: content.js contains $& / $' sequences (even in
-// comments), which a plain-string replacement would expand and corrupt.
-const html = fixture.replace("</head>", () => chromeStub + "\n<script>\n" + contentJs + "\n</script>\n</head>");
+const scripts = '\n<link rel="stylesheet" href="./overlay.css">\n<script defer src="./content.js"></script>';
+const html = fixture.replace("</head>", () => chromeStub + scripts + "\n</head>");
 
 fs.writeFileSync(path.join(root, "extension", "_verify.html"), html);
 console.log("wrote extension/_verify.html", html.length, "bytes");

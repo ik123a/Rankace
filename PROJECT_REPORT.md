@@ -1,5 +1,7 @@
 # Rankace — Project Report
 
+> Historical project report. See the [README](README.md) for current setup, checks, and extension behavior.
+
 **"Understand Rankings. Find Opportunities. Grow Visibility."**
 
 AI-powered SEO intelligence and search visibility platform. Audits technical SEO

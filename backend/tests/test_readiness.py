@@ -35,7 +35,7 @@ def base_report(**overrides):
 def test_robots_blocking_answer_crawlers_fails_access_signal():
     robots = (
         "User-agent: OAI-SearchBot\nDisallow: /\n\n"
-        "User-agent: ClaudeBot\nDisallow: /\n\n"
+        "User-agent: Claude-SearchBot\nDisallow: /\n\n"
         "User-agent: PerplexityBot\nDisallow: /\n\n"
         "User-agent: *\nAllow: /\n"
     )
@@ -48,11 +48,13 @@ def test_blocking_training_crawler_only_does_not_block_answers():
     # removing the site from live AI answers. Conflating the two is the most
     # common error in AI-SEO advice, and it is the reason the two crawler lists
     # are separate.
-    robots = "User-agent: GPTBot\nDisallow: /\n\nUser-agent: *\nAllow: /\n"
+    robots = "User-agent: GPTBot\nUser-agent: ClaudeBot\nDisallow: /\n\nUser-agent: *\nAllow: /\n"
     report = base_report(robots_text=robots)
     assert signal(report, "answer_crawlers")["status"] == "pass"
     gptbot = next(bot for bot in report["training_crawlers"] if bot["name"] == "GPTBot")
     assert gptbot["policy"] == "blocked"
+    claude_bot = next(bot for bot in report["training_crawlers"] if bot["name"] == "ClaudeBot")
+    assert claude_bot["policy"] == "blocked"
 
 
 def test_missing_robots_means_allow_all_not_blocked():
@@ -88,3 +90,17 @@ def test_in_links_count_sources_not_links():
     # Nothing links to /b, so it is a genuine orphan; /a is not.
     assert by_url["https://example.com/b"].in_links == 0
     assert by_url["https://example.com/"].in_links == 0
+
+
+def test_unreachable_robots_is_not_counted_as_allowed():
+    for status in (0, 429, 503):
+        report = base_report(robots_text="", robots_status=status)
+        assert signal(report, "answer_crawlers")["status"] == "fail"
+        assert all(crawler["policy"] == "unknown" for crawler in report["answer_crawlers"])
+
+
+def test_html_fallback_is_not_counted_as_a_policy_or_llms_text():
+    fallback = "<!doctype html><html><title>Home</title></html>"
+    report = base_report(robots_text=fallback, llms_text=fallback)
+    assert signal(report, "answer_crawlers")["status"] == "fail"
+    assert signal(report, "llms_txt")["status"] != "pass"

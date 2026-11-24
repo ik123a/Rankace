@@ -1,43 +1,19 @@
 import json
 import logging
 import time
-import urllib.robotparser as robotparser
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from urllib.parse import urljoin, urlparse
 
 import httpx
-
-try:
-    from scrapling.fetchers import Fetcher
-    from scrapling.parser import Selector
-    SCRAPLING_AVAILABLE = True
-except Exception:
-    SCRAPLING_AVAILABLE = False
+from scrapling.parser import Selector
 
 from app.core.config import settings
-from app.core.validators import normalize_url, validate_url
+from app.core.validators import normalize_url, public_target
+from app.crawler.robots import RobotsPolicy
 
 logger = logging.getLogger(__name__)
-
-# Stealth browser impersonation headers (inspired by Scrapling)
-STEALTH_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/126.0.0.0 Safari/537.36"
-    ),
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Sec-Ch-Ua": '"Not/A)Brand";v="8", "Chromium";v="126", "Google Chrome";v="126"',
-    "Sec-Ch-Ua-Mobile": "?0",
-    "Sec-Ch-Ua-Platform": '"Windows"',
-    "Sec-Fetch-Dest": "document",
-    "Sec-Fetch-Mode": "navigate",
-    "Sec-Fetch-Site": "cross-site",
-    "Sec-Fetch-User": "?1",
-    "Upgrade-Insecure-Requests": "1",
-}
 
 
 @dataclass
@@ -76,23 +52,6 @@ class CrawledPage:
     schema_types: list[str] = field(default_factory=list)
     og_title: str = ""
     is_spa_shell: bool = False
-
-
-def _robots_allowed(base: str, user_agent: str) -> robotparser.RobotFileParser | None:
-    if not settings.crawl_respect_robots:
-        return None
-    try:
-        parsed = urlparse(base)
-        robots_url = f"{parsed.scheme}://{parsed.netloc}/robots.txt"
-        with httpx.Client(headers=STEALTH_HEADERS, follow_redirects=True, timeout=10) as client:
-            resp = client.get(robots_url)
-            if resp.status_code == 200:
-                rp = robotparser.RobotFileParser()
-                rp.parse(resp.text.splitlines())
-                return rp
-    except Exception:
-        pass
-    return None
 
 
 def extract_page_data(sel, url: str, status_code: int, elapsed_ms: int, depth: int, start_url: str) -> CrawledPage:
@@ -234,155 +193,131 @@ def extract_page_data(sel, url: str, status_code: int, elapsed_ms: int, depth: i
 
 # Redirect handling is deliberately manual.
 #
-# Both engines default to following redirects, which silently defeats the
-# SSRF guard: the project URL is validated when it is saved, but a public host
-# is free to answer 302 Location: http://169.254.169.254/ or http://127.0.0.1/
-# and the client follows it AFTER validation has already passed. That is the
-# classic redirect-based SSRF bypass, and it was live here. Every hop is now
-# re-validated before it is requested, so the redirect target never gets a
-# connection unless it resolves to a public address.
 REDIRECT_CODES = {301, 302, 303, 307, 308}
 MAX_REDIRECTS = 5
+MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 
 
-def follow(url: str, timeout: int = 15):
-    """GET `url`, resolving redirects one hop at a time with SSRF validation.
+def _get_response(target: httpx.URL, addresses: list[str], timeout: int) -> httpx.Response:
+    # Connect to a validated address while retaining the site's HTTP host and TLS identity.
+    hostname = target.raw_host.decode("ascii").rstrip(".")
+    headers = {"Host": target.netloc.decode("ascii"), "User-Agent": settings.crawl_user_agent}
+    with httpx.Client(follow_redirects=False, timeout=timeout, trust_env=False) as client:
+        last_error = None
+        for address in addresses:
+            try:
+                with client.stream(
+                    "GET",
+                    target.copy_with(host=address),
+                    headers=headers,
+                    extensions={"sni_hostname": hostname},
+                ) as response:
+                    if response.status_code in REDIRECT_CODES:
+                        return httpx.Response(response.status_code, headers=response.headers)
+                    content = bytearray()
+                    for chunk in response.iter_bytes(chunk_size=65536):
+                        content.extend(chunk)
+                        if len(content) > MAX_RESPONSE_BYTES:
+                            raise ValueError("Response exceeds the audit size limit")
+                    decoded_headers = response.headers.copy()
+                    decoded_headers.pop("content-encoding", None)
+                    decoded_headers.pop("content-length", None)
+                    return httpx.Response(
+                        response.status_code, headers=decoded_headers,
+                        content=bytes(content),
+                    )
+            except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+                last_error = exc
+    raise last_error or ValueError("No reachable public addresses")
 
-    Returns (response, final_url, status, content_type). `response` is a
-    Scrapling Response when available, else an httpx.Response. Raises ValueError
-    when a hop resolves to a private/internal address.
-    """
+
+def follow(
+    url: str, timeout: int = 15, may_fetch: Callable[[str], bool] | None = None,
+) -> tuple[httpx.Response, str]:
     current = url
     for _ in range(MAX_REDIRECTS + 1):
-        # Cheap on the first hop (the stored URL was validated on save) and
-        # load-bearing on every hop after it.
-        validate_url(current)
-
-        if SCRAPLING_AVAILABLE:
-            try:
-                resp = Fetcher.get(current, timeout=timeout, follow_redirects=False)
-                status = resp.status
-                ctype = resp.headers.get("content-type", "") or ""
-                location = resp.headers.get("location") or ""
-                if status in REDIRECT_CODES and location:
-                    current = urljoin(current, location)
-                    continue
-                return resp, current, status, ctype
-            except ValueError:
-                raise
-            except Exception as e:  # engine failure -> fall through to httpx
-                logger.debug(f"Scrapling fetch failed for {current} ({e}), falling back to httpx...")
-
-        with httpx.Client(headers=STEALTH_HEADERS, follow_redirects=False, timeout=timeout) as client:
-            resp = client.get(current)
-            ctype = resp.headers.get("content-type", "") or ""
-            if resp.status_code in REDIRECT_CODES and resp.headers.get("location"):
-                current = urljoin(current, resp.headers["location"])
-                continue
-            return resp, current, resp.status_code, ctype
-
-    logger.warning(f"Redirect limit reached for {url}")
-    return None, current, 0, ""
-
-
-def fetch_url(url: str, timeout: int = 15):
-    """Fetch URL using Scrapling Fetcher (TLS spoofing & stealth headers), fallback to httpx."""
-    t0 = time.time()
-    try:
-        resp, final_url, status, ctype = follow(url, timeout=timeout)
-    except ValueError as e:
-        # A redirect pointed somewhere internal. Treat it as unfetchable rather
-        # than silently crawling it -- the reason is recorded on the page.
-        logger.warning(f"Blocked fetch for {url}: {e}")
-        return None, 0, int((time.time() - t0) * 1000), ""
-    except Exception as e:
-        logger.warning(f"HTTP fetch failed for {url}: {e}")
-        return None, 0, int((time.time() - t0) * 1000), ""
-
-    elapsed = int((time.time() - t0) * 1000)
-    if resp is None:
-        return None, status, elapsed, ctype
-    if "html" not in ctype and status == 200:
-        return None, status, elapsed, ctype
-    return resp, status, elapsed, ctype
+        target, addresses = public_target(current)
+        current = str(target)
+        if may_fetch is not None and not may_fetch(current):
+            raise ValueError("robots.txt policy does not allow this page to be fetched")
+        response = _get_response(target, addresses, timeout)
+        location = response.headers.get("location")
+        if response.status_code not in REDIRECT_CODES or not location:
+            return response, current
+        current = urljoin(current, location)
+    raise ValueError("Redirect limit reached")
 
 
 def fetch_text(url: str, timeout: int = 8) -> tuple[int, str]:
-    """Fetch a plain-text resource (robots.txt, sitemap.xml, llms.txt).
-
-    Same SSRF-validated redirect walk as fetch_url; never raises, because every
-    caller treats an unreachable file as a finding rather than a failure.
-    """
     try:
-        resp, _final, status, _ctype = follow(url, timeout=timeout)
-    except ValueError as e:
-        logger.info(f"Blocked text fetch for {url}: {e}")
+        response, _ = follow(url, timeout)
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.info("Could not fetch audit resource: %s", exc)
         return 0, ""
-    except Exception as e:
-        logger.warning(f"Text fetch failed for {url}: {e}")
-        return 0, ""
+    return response.status_code, response.text
 
-    if resp is None:
-        return status, ""
-    text = getattr(resp, "text", "") or ""
-    return status, text[:200_000]
+
+def _site_policy(url: str, policies: dict[str, RobotsPolicy]) -> RobotsPolicy:
+    parsed = urlparse(url)
+    origin = f"{parsed.scheme}://{parsed.netloc}"
+    if origin not in policies:
+        status, text = fetch_text(f"{origin}/robots.txt")
+        policies[origin] = RobotsPolicy.from_response(status, text)
+    return policies[origin]
+
+
+def fetch_page(url: str, *, depth: int = 0, policies: dict[str, RobotsPolicy] | None = None) -> CrawledPage:
+    policies = {} if policies is None else policies
+    user_agent = settings.crawl_user_agent.split("/", 1)[0]
+    start = time.monotonic()
+    response, final_url = follow(
+        url, timeout=settings.crawl_timeout_seconds,
+        may_fetch=lambda target: _site_policy(target, policies).allows(target, user_agent),
+    )
+    elapsed_ms = round((time.monotonic() - start) * 1000)
+    if "html" not in response.headers.get("content-type", "").lower():
+        if response.is_success:
+            raise ValueError("The requested resource did not return HTML")
+        return CrawledPage(url=final_url, status_code=response.status_code, load_time_ms=elapsed_ms, depth=depth)
+    return extract_page_data(Selector(response.text), final_url, response.status_code, elapsed_ms, depth, final_url)
 
 
 def crawl_site(start_url: str) -> list[CrawledPage]:
-    """Crawl a website starting at `start_url` with Scrapling anti-bot stealth & adaptive parsing."""
+    """Crawl a site's HTML pages within the configured page and depth budgets."""
     max_pages = settings.crawl_max_pages
     max_depth = settings.crawl_max_depth
     visited: set[str] = set()
-    queue: list[tuple[str, int]] = [(start_url, 0)]
     results: list[CrawledPage] = []
-
-    rp = _robots_allowed(start_url, settings.crawl_user_agent)
+    queue = [(start_url, 0)]
+    policies: dict[str, RobotsPolicy] = {}
+    user_agent = settings.crawl_user_agent.split("/", 1)[0]
 
     while queue and len(results) < max_pages:
         url, depth = queue.pop(0)
-        key = url.rstrip("/").lower()
+        key = url.rstrip("/")
         if key in visited or depth > max_depth:
             continue
         visited.add(key)
-
-        # Check robots.txt permission
-        if rp is not None:
-            try:
-                if not rp.can_fetch(settings.crawl_user_agent, url):
-                    continue
-            except Exception:
-                pass
-
-        sel, status_code, elapsed, ctype = fetch_url(url, timeout=settings.crawl_timeout_seconds)
-
-        if sel is None:
-            if status_code != 0 and "html" not in ctype:
-                # Non-HTML content (e.g. PDF, image) -> skip
-                continue
-            # Connection or fetch error
-            results.append(CrawledPage(url=url, status_code=status_code, load_time_ms=elapsed, depth=depth))
-            continue
-
         try:
-            page = extract_page_data(sel, url, status_code, elapsed, depth, start_url)
-            results.append(page)
+            page = fetch_page(url, depth=depth, policies=policies)
+        except (httpx.HTTPError, ValueError) as exc:
+            logger.info("Page could not be audited: %s", exc)
+            results.append(CrawledPage(url=url, depth=depth))
+            continue
+        final_key = page.url.rstrip("/")
+        if final_key != key and final_key in visited:
+            continue
+        visited.add(final_key)
+        results.append(page)
+        for link in page.out_links:
+            if link.rstrip("/") not in visited and len(results) + len(queue) < max_pages * 2:
+                queue.append((link, depth + 1))
 
-            # Queue newly discovered internal links for BFS traversal
-            for link in page.out_links:
-                nkey = link.rstrip("/").lower()
-                if nkey not in visited and len(results) + len(queue) < max_pages * 2:
-                    queue.append((link, depth + 1))
-
-        except Exception as err:
-            logger.error(f"Error parsing page {url}: {err}")
-            results.append(CrawledPage(url=url, status_code=status_code, load_time_ms=elapsed, depth=depth))
-
-        # Adaptive rate-limiting & crawl delay
-        if status_code in (429, 503):
-            # Backoff dynamically when throttled
-            time.sleep(2.0)
-        elif settings.crawl_delay_seconds:
-            time.sleep(settings.crawl_delay_seconds)
+        delay = max(settings.crawl_delay_seconds, _site_policy(page.url, policies).delay(user_agent))
+        if page.status_code in (429, 503):
+            delay = max(delay, 2.0)
+        if delay:
+            time.sleep(delay)
 
     _count_in_links(results)
     return results

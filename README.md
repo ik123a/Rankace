@@ -19,9 +19,9 @@ Instead of claiming to know Google's secret formula, Rankace computes **Search V
 ## 2. Core Features
 
 - **Robots-Compliant Web Crawler**:
-  - Full internal link crawl engine built with `httpx`, `BeautifulSoup`, and `lxml`.
-  - Respects `robots.txt` directives and crawl delays.
-  - Implements strict Server-Side Request Forgery (SSRF) defense against private IP ranges and localhost.
+  - HTTPX fetches public pages, and Scrapling parses their HTML.
+  - Uses a consistent Rankace user agent and applies robots rules on each origin, including redirect destinations. Waits for the configured or published crawl delay between pages.
+  - Validates public DNS addresses on every request and connects to an approved IP while retaining the website's HTTP host and TLS identity.
   - Detects redirects, canonical tags, page response times, and click depth.
 
 - **Automated Technical SEO Analyzer**:
@@ -36,7 +36,7 @@ Instead of claiming to know Google's secret formula, Rankace computes **Search V
   - Every classification includes transparent, human-readable linguistic signals explaining **why** it was categorized.
 
 - **Competitor Content Gap Analyzer**:
-  - Crawls competitor URLs and performs semantic cosine similarity analysis on page text.
+  - Fetches competitor HTML under the same crawler policy and compares page text using TF-IDF cosine similarity. An unavailable competitor is marked unmeasured and can be retried by submitting the URL again.
   - Identifies missing topic domains (e.g. Pricing, Itineraries, Permits, Best Season, FAQs, Hotels) where competitors provide answers that your site omits.
 
 - **Keyword Intelligence & Clustering**:
@@ -49,7 +49,7 @@ Instead of claiming to know Google's secret formula, Rankace computes **Search V
   - Track baseline click-through rates (CTR) vs variant CTR over time without making deceptive claims of automated Google live split-testing.
 
 - **AI-Search Readiness Audit**:
-  - Checks the signals that decide whether answer engines can read a site: the `robots.txt` policy for index crawlers (`OAI-SearchBot`, `ClaudeBot`, `PerplexityBot`), live-browsing agents and training crawlers reported **separately**, `sitemap.xml` discovery, `llms.txt`, JSON-LD coverage and server-rendered text.
+  - Checks the signals that decide whether answer engines can read a site: the `robots.txt` policy for index crawlers (`OAI-SearchBot`, `Claude-SearchBot`, `PerplexityBot`), live-browsing agents and training crawlers reported **separately**, `sitemap.xml` discovery, `llms.txt`, JSON-LD coverage and server-rendered text.
   - Scores the result 0–100 and explains every signal with the exact advice to act on. Unmeasured axes are marked unmeasured, never scored as perfect.
 
 - **Live Browser Extension**:
@@ -60,35 +60,35 @@ Instead of claiming to know Google's secret formula, Rankace computes **Search V
   - Generates comprehensive on-screen reports and instant one-click downloadable PDF audit reports powered by `fpdf2`.
 
 - **Demo Mode**:
-  - Pre-seeded with a fully interactive Demo Project ("Demo Travel Website") featuring synthetic metrics clearly labeled `DEMO DATA`.
+  - Public dashboard preview with synthetic summary figures labeled `DEMO DATA`.
 
 ---
 
 ## 3. Technology Stack
 
 ### Frontend
-- **Framework**: Next.js 14 (App Router)
+- **Framework**: Next.js 16 (App Router)
 - **Language**: TypeScript
 - **Styling**: Tailwind CSS
 - **Icons**: Lucide React
-- **HTTP Client**: Native Fetch with JWT bearer interceptor and blob stream handlers
+- **HTTP Client**: Native Fetch with JWT bearer headers and PDF downloads
 
 ### Backend
-- **Framework**: FastAPI (Python 3.10+)
+- **Framework**: FastAPI (Python 3.12)
 - **Validation**: Pydantic v2 & Pydantic Settings
 - **ORM & Database**: SQLAlchemy 2.0 (SQLite default fallback; PostgreSQL production-ready)
 - **Security**: Direct `bcrypt` password hashing + JSON Web Tokens (`python-jose`)
-- **HTTP & Parsing**: `httpx`, `beautifulsoup4`, `lxml`
+- **HTTP & Parsing**: `httpx`, Scrapling, and Protego
 - **NLP & ML**: `scikit-learn` (TF-IDF vectorizers, cosine similarity, KMeans clustering)
 - **Reporting**: `fpdf2` (vectorized PDF generator)
-- **Testing**: `pytest`, `pytest-asyncio`
+- **Testing**: pytest, Playwright, TypeScript, and ESLint
 
 ---
 
 ## 4. Project Structure
 
 ```text
-D:\Projects\Rankace
+Rankace
 ├── backend/
 │   ├── app/
 │   │   ├── analyzers/        # Technical SEO diagnostic rules
@@ -129,7 +129,7 @@ D:\Projects\Rankace
 │   │   │   └── page.tsx
 │   │   ├── login/            # Authentication & registration
 │   │   │   └── page.tsx
-│   │   ├── projects/[id]/    # 8-tab project intelligence suite
+│   │   ├── projects/[id]/    # Project intelligence workspace
 │   │   │   └── page.tsx
 │   │   ├── globals.css       # Design tokens, both themes
 │   │   ├── layout.tsx
@@ -157,105 +157,84 @@ D:\Projects\Rankace
 ## 5. Getting Started
 
 ### Prerequisites
-- Python 3.10 or higher
-- Node.js 18+ and npm
-- (Optional) Docker & Docker Compose
 
-### 1. Environment Configuration
+Use Python 3.12 and Node.js 22 or later. The container and CI use Node.js 24. Docker Compose is optional for local development.
 
-Copy the example configuration file:
+### 1. Configure the environment
+
+Copy `.env.example` to `.env`. Generate a unique value for `JWT_SECRET` with:
 
 ```bash
-cp .env.example .env
+python -c "import secrets; print(secrets.token_urlsafe(48))"
 ```
 
-Key environment variables:
-- `DATABASE_URL`: `sqlite:///./data/rankace.db` (or `postgresql+psycopg://user:pass@localhost:5432/rankace`)
-- `JWT_SECRET`: Random secret key for session signatures
-- `CORS_ORIGINS`: `http://localhost:3000`
-- `CRAWL_MAX_PAGES`: 50
-- `CRAWL_MAX_DEPTH`: 3
-- `DEMO_EMAIL`: `demo@rankace.local`
-- `DEMO_PASSWORD`: `demo1234`
+Rankace requires the generated secret at startup. When upgrading an existing installation, replace the old example secret and sign in again. The local API uses SQLite at `backend/data/rankace.db` by default. If the frontend is served on a different origin, set `CORS_ORIGINS` to that exact origin. For a custom browser-facing API address in local development, set `NEXT_PUBLIC_API_URL` in `frontend/.env.local`.
 
-### 2. Backend Setup & Run
+### 2. Start the backend
 
 ```bash
 cd backend
-
-# Install Python dependencies
-pip install -r requirements.txt
-
-# Run database migrations / initialization and start server
-python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+python -m pip install -r requirements.txt
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-The API will be available at `http://localhost:8000`. Interactive Swagger documentation is accessible at `http://localhost:8000/docs`.
+The API documentation is at `http://localhost:8000/docs`.
 
-### 3. Frontend Setup & Run
-
-In a separate terminal window:
+### 3. Start the frontend
 
 ```bash
 cd frontend
-
-# Install dependencies
-npm install
-
-# Start Next.js development server
+npm ci
 npm run dev
 ```
 
-Visit `http://localhost:3000` in your web browser.
+Open `http://localhost:3000` and register a local account to create projects and audit websites.
 
 ---
 
-## 6. Demo Mode & Credentials
+## 6. Demo and audit behavior
 
-Rankace is designed to be immediately demonstrable without requiring external paid API keys.
+Open `/dashboard?demo=1` for a public, read-only preview with labeled synthetic metrics. A local demo sign-in account is optional. Set `DEMO_ENABLED=true` and a custom `DEMO_PASSWORD` before startup to create it. Startup preserves passwords on existing accounts, and the legacy example password is disabled.
 
-- **Pre-configured Demo Credentials**:
-  - **Email**: `demo@rankace.local`
-  - **Password**: `demo1234`
-- You can also click the **"Fill Demo Credentials"** button on the Sign In page for one-click login.
-- To view the demo data preview, open `http://localhost:3000/dashboard?demo=1`.
+A crawl that reads zero HTML pages reports an error and preserves the previous successful audit. Competitors contribute to the gap score after their page text has been fetched. Competitors saved before this update can be re-fetched from the Gaps tab.
 
 ---
 
-## 7. Running Tests
-
-Run the full automated test suite (29 unit and integration tests) plus the scoring regression suite:
+## 7. Checks and extension releases
 
 ```bash
 cd backend
-python -m pytest tests -v
+python -m pip install -r requirements-dev.txt
+python -m pytest tests -q
 python scripts/scoring_regression.py
 ```
 
-Tests cover:
-1. URL validation & SSRF protection against loopback/private IPs
-2. Canonical URL normalization and protocol enforcement
-3. NLP intent classification across all 4 classes + explainability
-4. Keyword clustering & semantic similarity
-5. Technical SEO diagnostics (status codes, metadata, headings, alt tags, canonicals, depth)
-6. Competitor content gap extraction
-7. Multi-factor Opportunity Scoring & Recommendation prioritization
-8. PDF report byte compilation
-9. API authentication (Register, Login, Me)
-10. API project lifecycle (Create, Read, Archive, Export PDF, Delete)
-11. Public intent classification sandbox endpoint
-12. AI-readiness signals: blocked vs allowed answer crawlers, training-crawler separation, allow-all without robots.txt, partial-signal scoring, client-rendered shells
-13. In-link counting: one endorsement per source page, true orphan detection
+```bash
+cd frontend
+npm ci
+npm run lint
+npm run typecheck
+npm run test:classes
+npm run build
+npx playwright install chromium
+npm run test:extension
+```
+
+Run `node scripts/build-extension.mjs` from the repository root after a manifest or extension change. It uses Python's standard library to package the versioned ZIP. `node scripts/build-extension.mjs --check` verifies the ZIP and unpacked download against the current source. The extension is available from `/extension`. Extension 1.2.1 preserves indexing directives during Auto-Fix and export. The extension page lists the permissions used by Chrome.
 
 ---
 
-## 8. Docker Deployment
+## 8. Docker deployment
 
-To launch the full Rankace stack (Backend, Frontend, PostgreSQL database, and Redis):
+Set a separate URL-safe `POSTGRES_PASSWORD` in `.env`, then run:
 
 ```bash
-docker-compose up --build
+docker compose up --build --wait
 ```
+
+Compose starts PostgreSQL, the API, and a standalone production build of Next.js. It keeps PostgreSQL on the Compose network and publishes the web and API ports to loopback by default. `NEXT_PUBLIC_API_URL` is a build-time setting, so set it and rebuild when the browser-facing address changes. For an existing PostgreSQL volume, keep the configured password in sync with the database role because changing `.env` alone does not change the role password.
+
+The Markdown reports, charts, slides, and older extension ZIPs are historical project snapshots. Use this README and the current source for setup and release behavior.
 
 ---
 

@@ -2,34 +2,43 @@ import ipaddress
 import socket
 from urllib.parse import urlparse
 
-
-BLOCKED_HOSTS = {"localhost"}
-TIMEOUT = 15
+import httpx
 
 
-def validate_url(raw: str) -> str:
+def public_target(raw: str) -> tuple[httpx.URL, list[str]]:
     raw = (raw or "").strip()
     if not raw:
         raise ValueError("URL is required")
-    if not raw.startswith(("http://", "https://")):
+    if "://" not in raw:
         raw = "https://" + raw
-    parsed = urlparse(raw)
-    if parsed.scheme not in ("http", "https") or not parsed.hostname:
-        raise ValueError("Invalid URL")
-    host = parsed.hostname.lower()
-    if host in BLOCKED_HOSTS or host.endswith(".local") or host.endswith(".internal"):
-        raise ValueError("Blocked host")
     try:
-        infos = socket.getaddrinfo(host, None)
-        for info in infos:
-            ip = ipaddress.ip_address(info[4][0])
-            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
-                raise ValueError("URL resolves to a private/internal address (SSRF blocked)")
-    except ValueError:
-        raise
-    except Exception:
-        pass
-    return raw
+        target = httpx.URL(raw)
+    except httpx.InvalidURL as exc:
+        raise ValueError("Invalid URL") from exc
+    if (target.scheme not in {"http", "https"} or not target.host
+            or target.username or target.password):
+        raise ValueError("Use an HTTP(S) URL without credentials")
+    host = target.raw_host.decode("ascii").rstrip(".")
+    if host == "localhost" or host.endswith((".localhost", ".local", ".internal")):
+        raise ValueError("Blocked host")
+
+    try:
+        records = socket.getaddrinfo(host, target.port, type=socket.SOCK_STREAM)
+        addresses = list(dict.fromkeys(record[4][0] for record in records))
+    except OSError as exc:
+        raise ValueError("Could not resolve the website hostname") from exc
+    if not addresses:
+        raise ValueError("Could not resolve the website hostname")
+    for address in addresses:
+        ip = ipaddress.ip_address(address)
+        if not ip.is_global or ip.is_multicast or ip.is_reserved:
+            raise ValueError("URL resolves to a non-public address")
+    return target.copy_with(fragment=None), addresses
+
+
+def validate_url(raw: str) -> str:
+    target, _ = public_target(raw)
+    return str(target)
 
 
 def normalize_url(base: str, href: str) -> str | None:

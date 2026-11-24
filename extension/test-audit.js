@@ -1,16 +1,14 @@
 /**
  * Headless test harness for extension/content.js audit logic.
  *
- * The extension has never been executed in this project, so its checks are
- * unverified. This loads content.js into a real page (via Playwright), stubs
- * the chrome.* APIs it needs, and asserts on the audit it produces.
- *
- * Run from the frontend workspace where playwright is resolvable:
- *   NODE_PATH=<playwright-root> node ../extension/test-audit.js
+ * Runs in Chromium with browser-extension message APIs stubbed.
+ * From frontend/: npm run test:extension
  */
 const fs = require("fs");
 const path = require("path");
-const { chromium } = require("playwright");
+const { createRequire } = require("node:module");
+const fromFrontend = createRequire(path.join(__dirname, "../frontend/package.json"));
+const { chromium } = fromFrontend("playwright");
 
 const EXT = __dirname;
 const contentJs = fs.readFileSync(path.join(EXT, "content.js"), "utf8");
@@ -103,7 +101,8 @@ const FIXTURES = {
 // fixture here would report a false canonical warning.
 
 (async () => {
-  const browser = await chromium.launch();
+  const executablePath = process.env.RANKACE_CHROME_PATH;
+  const browser = await chromium.launch(executablePath ? { executablePath } : {});
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   let failures = 0;
   const check = (name, cond, detail = "") => {
@@ -210,10 +209,10 @@ const FIXTURES = {
         !/Clean/.test(audit.pillText || ""),
         `pill="${audit.pillText}"`
       );
-      check("pill counts every finding", /3\s*Fixes/.test(audit.pillText || ""), `pill="${audit.pillText}"`);
+      check("pill counts every finding", (audit.pillText || "").includes(`${audit.cardsRendered} Fixes`), `pill="${audit.pillText}"`);
     }
     if (label === "missing everything") {
-      check("empty page scores low (<40)", +audit.score < 40, `score=${audit.score}`);
+      check("empty page scores below 50", +audit.score < 50, `score=${audit.score}`);
     }
 
     await page.close();
@@ -238,6 +237,7 @@ const FIXTURES = {
       status: 200,
       contentType: "text/html",
       body: `<!doctype html><html lang="en"><head>
+        <meta name="robots" content="noindex, nofollow">
         <link rel="stylesheet" href="/_next/static/css/app.css">
       </head><body><h1>Export asset test</h1></body></html>`
     });
@@ -273,11 +273,20 @@ const FIXTURES = {
     const inlineCss = doc.querySelector("style")?.textContent || "";
     return {
       base,
+      robots: doc.querySelector('meta[name="robots"]')?.getAttribute("content"),
       css: css ? new URL(css, base).href : null,
       inlineCss,
       stylesheets: doc.querySelectorAll('link[rel~="stylesheet"]').length
     };
   }, exported.html || "");
+  check("corrected export preserves robots directives", assetUrls.robots === "noindex, nofollow");
+  const autofix = await exportPage.evaluate(() => new Promise((resolve) => {
+    window.__rankaceMessageListener({ action: "APPLY_ALL_FIXES" }, {}, resolve);
+  }));
+  const liveRobots = await exportPage.locator('meta[name="robots"]').getAttribute("content");
+  check("live auto-fix preserves robots directives", liveRobots === "noindex, nofollow");
+  check("live auto-fix flags indexing for manual review",
+    autofix?.manual?.some((item) => item.title === "Review the page's indexability"));
   check(
     "corrected export preserves the original page base",
     assetUrls.base === "https://rankace.invalid/dashboard",

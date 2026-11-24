@@ -1,5 +1,7 @@
 # Rankace: An Explainable Search Visibility Intelligence and Autonomous Web Optimization Platform
 
+> Historical project report. See the [README](README.md) for current setup, checks, and extension behavior.
+
 **Academic Whitepaper & Final Capstone Project Report**  
 *Course Alignment: CSET488 Growth Hacking / Advanced Search Systems Engineering*  
 *Publication Date: November 2026*  

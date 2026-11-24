@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.analyzers.technical import analyze_technical
 from app.api.auth import current_user, _validate_project_url
 from app.core.database import get_db
-from app.crawler.crawler import crawl_site, fetch_text
+from app.crawler.crawler import crawl_site, fetch_page, fetch_text
 from app.models import (Competitor, ContentGap, CrawlSession, Experiment, Keyword,
                         Page, Project, Recommendation, SeoScore, TechnicalIssue, User)
 from app.nlp.intent import classify_intent, embedding_similarity
@@ -256,9 +256,19 @@ CHILD_MODELS = (
 )
 
 
+def _lock_project(db: Session, project_id: int) -> bool:
+    # A no-op write serializes project mutations on both PostgreSQL and SQLite.
+    return bool(db.query(Project).filter(Project.id == project_id).update(
+        {Project.id: Project.id}, synchronize_session=False,
+    ))
+
+
 @router.delete("/{project_id}")
 def delete_project(project_id: int, db: Session = Depends(get_db), user: User = Depends(current_user)):
     project = _owned(db, user, project_id)
+
+    if not _lock_project(db, project.id):
+        raise HTTPException(status_code=404, detail="Project not found")
 
     # Delete the children explicitly. `db.delete(project)` removed only the
     # project row: every page, keyword, competitor, gap, recommendation,
@@ -296,12 +306,32 @@ def unarchive(project_id: int, db: Session = Depends(get_db), user: User = Depen
 @router.post("/{project_id}/crawl")
 def start_crawl(project_id: int, db: Session = Depends(get_db), user: User = Depends(current_user)):
     project = _owned(db, user, project_id)
-    session = CrawlSession(project_id=project.id, status="running")
+    if not _lock_project(db, project_id):
+        raise HTTPException(status_code=404, detail="Project not found")
+    db.refresh(project)
+    website_url, target_keyword, name = project.website_url, project.target_keyword, project.name
+    latest = db.query(CrawlSession).filter(CrawlSession.project_id == project_id).order_by(CrawlSession.id.desc()).first()
+    if latest and _effective_session_state(latest)[0] == "running":
+        raise HTTPException(status_code=409, detail="An audit is already running for this project.")
+
+    session = CrawlSession(project_id=project_id, status="running")
     db.add(session)
+    db.flush()
+    session_id = session.id
     db.commit()
-    db.refresh(session)
     try:
-        pages = crawl_site(project.website_url)
+        pages = crawl_site(website_url)
+        if not any(200 <= page.status_code < 300 for page in pages):
+            raise HTTPException(
+                status_code=422,
+                detail="No HTML pages could be audited. The last successful audit has been kept.",
+            )
+        if not _lock_project(db, project_id):
+            raise HTTPException(status_code=404, detail="Project not found")
+        db.refresh(project)
+        latest = db.query(CrawlSession).filter(CrawlSession.project_id == project_id).order_by(CrawlSession.id.desc()).first()
+        if not latest or latest.id != session_id or (project.website_url, project.target_keyword) != (website_url, target_keyword):
+            raise HTTPException(status_code=409, detail="The audit was superseded. Start a new audit to refresh the project.")
         db.query(Page).filter(Page.project_id == project.id).delete()
         db.query(TechnicalIssue).filter(TechnicalIssue.project_id == project.id).delete()
         for p in pages:
@@ -316,7 +346,7 @@ def start_crawl(project_id: int, db: Session = Depends(get_db), user: User = Dep
         issues, tech = analyze_technical(pages)
         for i in issues:
             db.add(TechnicalIssue(project_id=project.id, crawl_session_id=session.id, **i))
-        keywords = build_keywords(project.target_keyword, pages)
+        keywords = build_keywords(target_keyword, pages)
         db.query(Keyword).filter(Keyword.project_id == project.id).delete()
         for k in keywords:
             db.add(Keyword(project_id=project.id, keyword=k["keyword"], intent=k["intent"],
@@ -326,18 +356,18 @@ def start_crawl(project_id: int, db: Session = Depends(get_db), user: User = Dep
                            data_source="analysis"))
         your_text = " ".join(p.content_text for p in pages[:5])
         comps = db.query(Competitor).filter(Competitor.project_id == project.id).all()
-        comp_texts = [f"{c.title} {c.url}" for c in comps]
-        gaps = content_gaps(your_text, comp_texts)
+        comp_texts = [comp.content_text for comp in comps if comp.content_text]
+        gaps = content_gaps(your_text, comp_texts) if comp_texts else []
         db.query(ContentGap).filter(ContentGap.project_id == project.id).delete()
         for g in gaps:
             db.add(ContentGap(project_id=project.id, topic=g["topic"], your_coverage=g["your_coverage"],
                               competitor_coverage=g["competitor_coverage"], gap_level=g["gap_level"]))
         gap_penalty = sum(20 for g in gaps if g["gap_level"] == "high")
-        intent = classify_intent(project.target_keyword or project.name)
+        intent = classify_intent(target_keyword or name)
         intent_match = 94 if intent["intent"] in ("Commercial Investigation", "Transactional") else 70
         kw_fit = round(sum(k["relevance"] for k in keywords) / max(len(keywords), 1) * 100, 1) if keywords else 50
         scores = compute_scores(
-            tech["technical"], pages, kw_fit, intent_match, gap_penalty, gap_measured=bool(comps)
+            tech["technical"], pages, kw_fit, intent_match, gap_penalty, gap_measured=bool(comp_texts)
         )
         db.add(SeoScore(project_id=project.id, crawl_session_id=session.id,
                         health=scores["health"], opportunity=scores["opportunity"],
@@ -366,16 +396,20 @@ def start_crawl(project_id: int, db: Session = Depends(get_db), user: User = Dep
         # the batch back, then mark the session row, which was committed
         # separately before the crawl started and therefore survives.
         db.rollback()
-        logger.exception("Crawl failed for project %s", project_id)
-        failed = db.get(CrawlSession, session.id)
-        if failed is None:
-            failed = CrawlSession(project_id=project.id)
-            db.add(failed)
-        failed.status = "error"
-        failed.error = str(exc)[:2000]
-        failed.finished_at = dt.datetime.now(dt.timezone.utc)
-        db.commit()
-        raise HTTPException(status_code=500, detail=f"Crawl failed: {exc}")
+        if isinstance(exc, HTTPException):
+            error_message = str(exc.detail)
+        else:
+            logger.exception("Crawl failed for project %s", project_id)
+            error_message = "The audit could not be completed. Retry the crawl."
+        failed = db.get(CrawlSession, session_id)
+        if failed is not None:
+            failed.status = "error"
+            failed.error = error_message
+            failed.finished_at = dt.datetime.now(dt.timezone.utc)
+            db.commit()
+        if isinstance(exc, HTTPException):
+            raise
+        raise HTTPException(status_code=500, detail=error_message) from exc
 
 
 @router.get("/{project_id}/crawl-status")
@@ -454,49 +488,56 @@ def gaps_route(project_id: int, db: Session = Depends(get_db), user: User = Depe
     return db.query(ContentGap).filter(ContentGap.project_id == project_id).all()
 
 
+def _competitor_result(comp: Competitor) -> dict:
+    measured = bool(comp.content_text)
+    return {
+        "id": comp.id,
+        "url": comp.url,
+        "title": comp.title,
+        "word_count": comp.word_count,
+        "similarity": comp.similarity if measured else None,
+        "fetch_error": comp.fetch_error or ("" if measured else "Fetch this URL again to measure its content."),
+    }
+
+
 @router.get("/{project_id}/competitors")
 def list_competitors(project_id: int, db: Session = Depends(get_db), user: User = Depends(current_user)):
     _owned(db, user, project_id)
-    return db.query(Competitor).filter(Competitor.project_id == project_id).all()
+    comps = db.query(Competitor).filter(Competitor.project_id == project_id).order_by(Competitor.id).all()
+    return [_competitor_result(comp) for comp in comps]
 
 
 @router.post("/{project_id}/competitors")
 def add_competitor(project_id: int, payload: CompetitorIn, db: Session = Depends(get_db), user: User = Depends(current_user)):
     project = _owned(db, user, project_id)
     url = _validate_project_url(payload.url)
-    title, words, similarity = "", 0, 0.0
-    fetch_error = ""
+    title, words, similarity, content_text = "", 0, 0.0, None
+    fetch_error = None
     try:
-        with httpx.Client(timeout=15, follow_redirects=False) as client:
-            resp = client.get(url, headers={"User-Agent": "RankaceBot/1.0"})
-            if resp.status_code >= 400:
-                fetch_error = f"Competitor returned HTTP {resp.status_code}."
-            else:
-                from bs4 import BeautifulSoup
+        page = fetch_page(url)
+        if not (200 <= page.status_code < 300):
+            fetch_error = f"Competitor returned HTTP {page.status_code}."
+        elif not page.content_text.strip():
+            fetch_error = "Competitor returned no readable page text."
+        else:
+            title, words, content_text = page.title, page.word_count, page.content_text
+            yours = db.query(Page).filter(Page.project_id == project.id).order_by(Page.depth, Page.id).first()
+            similarity = round(embedding_similarity(yours.content_text[:5000] if yours else "", content_text[:5000]) * 100, 1)
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.info("Competitor page could not be fetched: %s", exc)
+        fetch_error = "Could not read this URL. Check its availability and crawler policy, then retry."
 
-                soup = BeautifulSoup(resp.text, "lxml")
-                title = soup.title.string.strip() if soup.title and soup.title.string else ""
-                words = len(soup.get_text(" ", strip=True).split())
-                yours = db.query(Page).filter(Page.project_id == project.id).first()
-                similarity = round(embedding_similarity(yours.content_text[:5000] if yours else "", soup.get_text(" ", strip=True)[:5000]) * 100, 1)
-    except Exception as exc:
-        # Was a bare `pass`, so an unreachable, blocked or non-HTML competitor
-        # was saved as a blank row with 0 words and 0% similarity. The user had
-        # no way to tell "we could not read it" from "this page is empty".
-        logger.warning("Competitor fetch failed for %s: %s", url, exc)
-        fetch_error = "Could not fetch this URL; the comparison is unavailable."
-    comp = Competitor(project_id=project.id, url=url, title=title, word_count=words, similarity=similarity)
-    db.add(comp)
+    comp = db.query(Competitor).filter(
+        Competitor.project_id == project.id, Competitor.url.in_({url, url.rstrip("/")}),
+    ).order_by(Competitor.id).first()
+    if comp is None:
+        comp = Competitor(project_id=project.id, url=url)
+        db.add(comp)
+    comp.title, comp.word_count, comp.similarity = title, words, similarity
+    comp.content_text, comp.fetch_error = content_text, fetch_error
     db.commit()
     db.refresh(comp)
-    return {
-        "id": comp.id,
-        "url": comp.url,
-        "title": comp.title,
-        "word_count": comp.word_count,
-        "similarity": comp.similarity,
-        "fetch_error": fetch_error,
-    }
+    return _competitor_result(comp)
 
 
 @router.get("/{project_id}/readiness")

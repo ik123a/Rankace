@@ -1,41 +1,42 @@
-version: "3.9"
 services:
   db:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: rankace
-      POSTGRES_PASSWORD: rankace
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: rankace
     volumes:
       - pgdata:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "rankace", "-d", "rankace"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
   api:
-    build:
-      context: ./backend
+    build: ./backend
     env_file: .env
     environment:
-      DATABASE_URL: postgresql+psycopg://rankace:rankace@db:5432/rankace
-      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql+psycopg://rankace:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/rankace
     ports:
-      - "8000:8000"
+      - "${APP_BIND_ADDRESS:-127.0.0.1}:8000:8000"
     depends_on:
-      - db
-      - redis
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/health', timeout=2).close()"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
   web:
     build:
       context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
     ports:
-      - "3000:3000"
-    environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8000
+      - "${APP_BIND_ADDRESS:-127.0.0.1}:3000:3000"
     depends_on:
-      - api
+      api:
+        condition: service_healthy
 
 volumes:
   pgdata:

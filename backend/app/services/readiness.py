@@ -13,50 +13,36 @@ network lives in `api/projects.py`, which keeps this module testable without
 touching the internet.
 """
 import json
-import urllib.robotparser as robotparser
+from app.crawler.robots import RobotsPolicy
 
 # Three distinct kinds of AI crawler, and they must not be conflated:
 #
 #   index  - build the retrieval index an answer is drawn from. Blocking these
-#            removes the site from AI answers for good.
+#            can reduce visibility in the provider’s search results.
 #   live   - fetch one URL on a user's behalf, at question time. Blocking these
 #            only breaks the "open this page" path, and they do not index.
 #   train  - collect model-training corpora. Blocking these is a data-licensing
-#            decision that does not affect whether the site can be cited today.
+#            decision independent of these search-crawler rules.
 #
 # Treating a live-fetch agent as equivalent to an index crawler makes a site
 # that blocks ChatGPT, Claude and Perplexity look "partly allowed" merely
 # because an on-demand fetcher still gets through. It is not partly allowed.
 ANSWER_CRAWLERS = [
     ("OAI-SearchBot", "ChatGPT search index", "index"),
-    ("ClaudeBot", "Anthropic / Claude index", "index"),
+    ("Claude-SearchBot", "Claude search index", "index"),
     ("PerplexityBot", "Perplexity index", "index"),
-    ("ChatGPT-User", "ChatGPT live browsing", "live"),
+    ("ChatGPT-User", "ChatGPT live browsing (robots rules may not apply)", "live"),
     ("Claude-User", "Claude live browsing", "live"),
 ]
 INDEX_CRAWLERS = [name for name, _purpose, kind in ANSWER_CRAWLERS if kind == "index"]
 TRAINING_CRAWLERS = [
     ("GPTBot", "OpenAI model training"),
+    ("ClaudeBot", "Anthropic model training"),
     ("Google-Extended", "Gemini training"),
     ("CCBot", "Common Crawl corpus"),
 ]
 
 PASS, WARN, FAIL = "pass", "warn", "fail"
-
-
-def _robot_policy(robots_text: str, user_agent: str) -> str:
-    """Return 'allowed' | 'blocked' | 'unknown' for one user agent."""
-    if not robots_text.strip():
-        return "unknown"
-    parser = robotparser.RobotFileParser()
-    try:
-        parser.parse(robots_text.splitlines())
-        # Probe the root: a site that blocks "/" blocks everything, and a site
-        # that allows it usually allows its content. Per-path crawling is the
-        # crawler's job, not this summary's.
-        return "allowed" if parser.can_fetch(user_agent, "/") else "blocked"
-    except Exception:
-        return "unknown"
 
 
 def _sitemap_locations(sitemap_text: str) -> int:
@@ -80,8 +66,15 @@ def analyse(
 
     `pages` are Page ORM rows for the project's most recent crawl.
     """
-    answer_policy = {name: _robot_policy(robots_text, name) for name, _p, _k in ANSWER_CRAWLERS}
-    training_policy = {name: _robot_policy(robots_text, name) for name, _ in TRAINING_CRAWLERS}
+    policy = RobotsPolicy.from_response(robots_status, robots_text)
+
+    def root_policy(name: str) -> str:
+        if policy.state == "unreachable":
+            return "unknown"
+        return "allowed" if policy.allows(f"{origin}/", name) else "blocked"
+
+    answer_policy = {name: root_policy(name) for name, _p, _k in ANSWER_CRAWLERS}
+    training_policy = {name: root_policy(name) for name, _ in TRAINING_CRAWLERS}
 
     allowed_answer = [n for n in INDEX_CRAWLERS if answer_policy[n] == "allowed"]
     blocked_answer = [n for n in INDEX_CRAWLERS if answer_policy[n] == "blocked"]
@@ -93,48 +86,26 @@ def analyse(
             {"key": key, "label": label, "status": status, "detail": detail, "advice": advice}
         )
 
-    # 1. robots.txt reachable at all.
-    if robots_status == 200:
-        add(
-            "robots",
-            "robots.txt published",
-            PASS,
-            "robots.txt is served, so crawler policy is explicit rather than implied.",
-            "Keep it version-controlled; it is a production file.",
-        )
-    elif robots_status == 0:
-        add(
-            "robots",
-            "robots.txt unreachable",
-            WARN,
-            "robots.txt could not be fetched. Crawlers then assume everything is allowed.",
-            "Publish robots.txt at the site root to state the policy deliberately.",
-        )
+    if policy.state == "published":
+        add("robots", "robots.txt published", PASS,
+            "The site's crawler policy is available.", "Keep the file version-controlled.")
+    elif policy.state == "unavailable":
+        add("robots", "robots.txt missing", WARN,
+            f"robots.txt returned HTTP {robots_status}.",
+            "Publish robots.txt at the site root and reference the sitemap from it.")
     else:
-        add(
-            "robots",
-            "robots.txt missing",
-            WARN,
-            f"robots.txt returned HTTP {robots_status}; crawlers fall back to allow-all.",
-            "Publish robots.txt at the site root and reference the sitemap from it.",
-        )
+        add("robots", "robots.txt unreachable or invalid", FAIL,
+            f"The audit could not read a valid policy (HTTP {robots_status or 'no response'}).",
+            "Restore access to the plain-text robots.txt file and retry the audit.")
 
-    # 2. Answer-engine access -- the one that actually removes you from AI answers.
-    #
-    # No robots.txt (or an unreadable one) means allow-all by protocol, so every
-    # answer crawler IS permitted. Reporting that as "blocked" -- which the first
-    # draft did, because every policy came back "unknown" -- would have told a
-    # site with no robots.txt that AI engines cannot cite it, which is the
-    # opposite of the truth. Access and stated policy are separate signals and
-    # are scored separately.
-    if robots_status != 200:
-        add(
-            "answer_crawlers",
-            "Answer engines allowed by default",
-            PASS,
-            "No robots.txt is served, so every crawler -- including the answer engines -- is allowed.",
-            "Publish robots.txt to make that policy deliberate and to point at the sitemap.",
-        )
+    if policy.state == "unreachable":
+        add("answer_crawlers", "Answer crawler access unknown", FAIL,
+            "RFC 9309 treats an unreachable robots policy as disallow. Access could not be verified.",
+            "Restore robots.txt before evaluating crawler access.")
+    elif policy.state == "unavailable":
+        add("answer_crawlers", "Answer engines allowed by default", PASS,
+            "The robots policy is unavailable. Crawling is allowed by default for this response.",
+            "Publish robots.txt to state the crawler policy explicitly.")
     elif allowed_answer and not blocked_answer:
         add(
             "answer_crawlers",
@@ -157,9 +128,8 @@ def analyse(
             "answer_crawlers",
             "Answer engines blocked",
             FAIL,
-            "No answer crawler is permitted at the root, so AI surfaces cannot cite this site.",
-            "Allow OAI-SearchBot, ClaudeBot and PerplexityBot if AI answers matter to you. "
-            "Blocking them does not protect rankings; it only removes the citation.",
+            "The checked search crawlers are disallowed at the site root.",
+            "Allow OAI-SearchBot, Claude-SearchBot and PerplexityBot on pages intended for search.",
         )
 
     # 3. Sitemap.
@@ -194,7 +164,7 @@ def analyse(
         )
 
     # 4. llms.txt -- the emerging convention for telling an assistant what a site is.
-    if llms_status == 200 and llms_text.strip():
+    if llms_status == 200 and llms_text.lstrip().startswith('# '):
         add(
             "llms_txt",
             "llms.txt present",
@@ -205,9 +175,9 @@ def analyse(
     elif llms_status == 200:
         add(
             "llms_txt",
-            "llms.txt empty",
+            "llms.txt format unrecognized",
             WARN,
-            "llms.txt is served but contains no text.",
+            "Expected a Markdown site title at the start of llms.txt.",
             "Add a one-paragraph description, the key URLs and a licence note.",
         )
     else:

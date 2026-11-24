@@ -719,12 +719,7 @@
     for (const issue of issues) {
       weighted += SEVERITY_WEIGHT[issue.severity] ?? 1;
     }
-    // Each weighted point costs 1.6 score points. The multiplier is set from
-    // measurement, not taste: a page missing its title, description, canonical
-    // and H1 *and* carrying thin content (4 critical + 1 warning = 39 weighted)
-    // must land below 40, because that page is not meaningfully usable for
-    // search. At 1.15 it scored 55; at 1.6 it scores 38. A single warning still
-    // costs only ~5 points, so minor findings stay minor.
+    // Each weighted point costs 1.6 score points. A single warning costs about five points.
     score = Math.max(0, Math.min(100, Math.round(100 - weighted * 1.6)));
 
     // Return structured report
@@ -1217,7 +1212,7 @@
           </div>
         ` : `
           <div class="rankace-autofix-desc">
-            Correct every issue the extension can fix safely — title, description, canonical, lang, viewport, charset, noindex, duplicate H1s, image alt text and link rel — then export the corrected page as an .html file.
+            Correct every issue the extension can fix safely — title, description, canonical, lang, viewport, charset, duplicate H1s, image alt text and link rel — then export the corrected page as an .html file. Indexing directives are preserved.
           </div>
           <div class="rankace-autofix-actions">
             <button id="rankace-drawer-run-fixes" class="rankace-copy-btn rankace-autofix-primary">✨ Fix all fixable issues</button>
@@ -1609,23 +1604,11 @@
       });
     }
 
-    // 7. Robots meta (only strips noindex — never invents directives) ------
-    const robotsEl = document.querySelector('meta[name="robots" i]');
-    if (robotsEl) {
-      const content = (robotsEl.getAttribute("content") || "").trim();
-      const cleaned = content
-        .split(",")
-        .map((d) => d.trim())
-        .filter((d) => !/^(noindex|none)$/i.test(d))
-        .join(", ");
-      if (cleaned !== content) {
-        robotsEl.setAttribute("content", cleaned);
-        recordAutoFix({
-          id: "noindex_removed",
-          title: "Removed noindex directive",
-          detail: `robots meta changed "${content}" → "${cleaned || '(empty)'}"`
-        });
-      }
+    if (before.stats.noindex) {
+      AUTO_FIX.manual.push({
+        title: "Review the page's indexability",
+        detail: "Indexing directives were preserved. Change them in the source only if the page is intended for search."
+      });
     }
 
     // 8. Heading hierarchy ----------------------------------------------
@@ -1902,20 +1885,6 @@
     if (!cloneHas('link[rel="canonical"]') && location.protocol.startsWith("http")) {
       pushLink("canonical", location.href.split("#")[0]);
       fixes.push("Added canonical");
-    }
-
-    // robots: strip noindex only
-    const robotsMetaEl = clone.querySelector('meta[name="robots"]');
-    if (robotsMetaEl) {
-      const content = (robotsMetaEl.getAttribute("content") || "").trim();
-      const cleaned = content.split(",").map((d) => d.trim()).filter((d) => !/^(noindex|none)$/i.test(d)).join(",");
-      if (cleaned !== content) {
-        const escapedContent = escapeAttr(content);
-        if (head.includes(`content="${escapedContent}"`)) {
-          head = head.replace(`content="${escapedContent}"`, () => `content="${escapeAttr(cleaned)}"`);
-          fixes.push("Removed noindex");
-        }
-      }
     }
 
     // lang on <html> is applied to the FINAL string below: the <html> tag

@@ -99,32 +99,30 @@ function DashboardContent() {
     }
 
     try {
-      // The aggregate is a separate, optional read: a failure there must not
-      // take down the roster, which is the page's actual job.
-      const [data, summary] = await Promise.all([
-        api<Project[]>("/api/projects"),
-        api<Overview>("/api/projects/overview").catch(() => null)
-      ]);
-      setProjects(data || []);
-      setOverview(summary);
-
       if (showDemoParam) {
-        const demo = await api<DemoData>("/api/demo").catch(() => null);
+        const demo = await api<DemoData>("/api/demo");
         setDemoData(demo);
+        setProjects([]);
+        setOverview(null);
+      } else {
+        const [data, summary] = await Promise.all([
+          api<Project[]>("/api/projects"),
+          api<Overview>("/api/projects/overview").catch(() => null)
+        ]);
+        setDemoData(null);
+        setProjects(data || []);
+        setOverview(summary);
       }
     } catch (e) {
-      if (showDemoParam) {
-        setProjects([]);
-      } else {
-        setError(e instanceof Error ? e.message : "Failed to load projects");
-      }
+      setError(e instanceof Error ? e.message : "Failed to load the dashboard");
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    loadData();
+    const timer = window.setTimeout(() => void loadData(), 0);
+    return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showDemoParam]);
 
@@ -223,7 +221,7 @@ function DashboardContent() {
               Site
             </Link>
             <ThemeToggle />
-            <Button variant="secondary" size="sm" onClick={logout}>
+            <Button variant="secondary" size="sm" onClick={() => { logout(); router.replace("/login"); }}>
               <LogOut className="h-3.5 w-3.5" aria-hidden="true" />
               Sign out
             </Button>
@@ -320,150 +318,154 @@ function DashboardContent() {
           </p>
         ) : null}
 
-        <Panel>
-          <h2 className="text-title-m text-ink-primary">Initialise a new project</h2>
-          <p className="measure mt-2 text-body-s text-ink-secondary">
-            Give Rankace a domain and the query you care about. The first crawl establishes the
-            baseline every later score is measured against.
-          </p>
-          <form onSubmit={handleCreate} className="mt-6 grid gap-4 md:grid-cols-4 md:items-end">
-            <Input
-              label="Project name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Northwind Cloud"
-              required
-            />
-            <Input
-              label="Website domain"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              placeholder="northwind.com"
-              required
-            />
-            <Input
-              label="Target keyword"
-              value={keyword}
-              onChange={(e) => setKeyword(e.target.value)}
-              placeholder="enterprise kubernetes hosting"
-              required
-            />
-            <Button type="submit" className="w-full">
-              Initialise audit
-            </Button>
-          </form>
-        </Panel>
+        {!showDemoParam ? (
+          <>
+            <Panel>
+              <h2 className="text-title-m text-ink-primary">Initialise a new project</h2>
+              <p className="measure mt-2 text-body-s text-ink-secondary">
+                Give Rankace a domain and the query you care about. The first crawl establishes the
+                baseline every later score is measured against.
+              </p>
+              <form onSubmit={handleCreate} className="mt-6 grid gap-4 md:grid-cols-4 md:items-end">
+                <Input
+                  label="Project name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Northwind Cloud"
+                  required
+                />
+                <Input
+                  label="Website domain"
+                  value={url}
+                  onChange={(e) => setUrl(e.target.value)}
+                  placeholder="northwind.com"
+                  required
+                />
+                <Input
+                  label="Target keyword"
+                  value={keyword}
+                  onChange={(e) => setKeyword(e.target.value)}
+                  placeholder="enterprise kubernetes hosting"
+                  required
+                />
+                <Button type="submit" className="w-full">
+                  Initialise audit
+                </Button>
+              </form>
+            </Panel>
 
-        <section>
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <h2 className="text-title-l text-ink-primary">Roster</h2>
-            <Tabs
-              variant="pill"
-              mode="filter"
-              ariaLabel="Filter projects by status"
-              value={statusFilter}
-              onChange={(next) => setStatusFilter(next as Filter)}
-              items={FILTERS.map((filter) => ({ id: filter.id, label: filter.label }))}
-              className="w-fit"
-            />
-          </div>
-
-          <div className="mt-5">
-            {loading ? (
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {Array.from({ length: 3 }, (_, index) => (
-                  <Panel key={index}>
-                    <Skeleton className="h-4 w-32" />
-                    <Skeleton className="mt-3 h-3 w-48" />
-                    <Skeleton className="mt-6 h-9 w-full" />
-                  </Panel>
-                ))}
+            <section>
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <h2 className="text-title-l text-ink-primary">Roster</h2>
+                <Tabs
+                  variant="pill"
+                  mode="filter"
+                  ariaLabel="Filter projects by status"
+                  value={statusFilter}
+                  onChange={(next) => setStatusFilter(next as Filter)}
+                  items={FILTERS.map((filter) => ({ id: filter.id, label: filter.label }))}
+                  className="w-fit"
+                />
               </div>
-            ) : filteredProjects.length === 0 ? (
-              <EmptyState
-                title={statusFilter === "archived" ? "No archived projects" : "No projects yet"}
-                body={
-                  statusFilter === "archived"
-                    ? "Archived projects stay here with their crawl history intact."
-                    : "Initialise your first project above to run a technical audit and start mapping search opportunities."
-                }
-              />
-            ) : (
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {filteredProjects.map((project) => (
-                  <Panel key={project.id} tone="interactive" className="flex flex-col">
-                    <div className="flex items-start justify-between gap-3">
-                      <h3 className="truncate text-title-m text-ink-primary">{project.name}</h3>
-                      <StatusTag
-                        kind={project.status === "active" ? "success" : "neutral"}
-                        label={project.status}
-                      />
-                    </div>
 
-                    <a
-                      href={project.website_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="mt-2 inline-flex items-center gap-1.5 text-body-s text-ink-secondary transition-colors duration-150 ease-instrument hover:text-accent"
-                    >
-                      <Globe className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                      <span className="truncate">{project.website_url}</span>
-                      <ExternalLink className="h-3 w-3 shrink-0 opacity-70" aria-hidden="true" />
-                    </a>
+              <div className="mt-5">
+                {loading ? (
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {Array.from({ length: 3 }, (_, index) => (
+                      <Panel key={index}>
+                        <Skeleton className="h-4 w-32" />
+                        <Skeleton className="mt-3 h-3 w-48" />
+                        <Skeleton className="mt-6 h-9 w-full" />
+                      </Panel>
+                    ))}
+                  </div>
+                ) : filteredProjects.length === 0 ? (
+                  <EmptyState
+                    title={statusFilter === "archived" ? "No archived projects" : "No projects yet"}
+                    body={
+                      statusFilter === "archived"
+                        ? "Archived projects stay here with their crawl history intact."
+                        : "Initialise your first project above to run a technical audit and start mapping search opportunities."
+                    }
+                  />
+                ) : (
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {filteredProjects.map((project) => (
+                      <Panel key={project.id} tone="interactive" className="flex flex-col">
+                        <div className="flex items-start justify-between gap-3">
+                          <h3 className="truncate text-title-m text-ink-primary">{project.name}</h3>
+                          <StatusTag
+                            kind={project.status === "active" ? "success" : "neutral"}
+                            label={project.status}
+                          />
+                        </div>
 
-                    <div className="mt-4 rounded-sm border border-line-subtle bg-surface-sunken px-3 py-2">
-                      <span className="font-mono text-mono-micro uppercase text-ink-tertiary">
-                        Target query
-                      </span>
-                      <p className="mt-1 truncate font-mono text-mono-data text-ink-primary">
-                        {project.target_keyword}
-                      </p>
-                    </div>
-
-                    <div className="mt-auto flex items-center justify-between gap-2 border-t border-line-subtle pt-4">
-                      <Link
-                        href={`/projects/${project.id}`}
-                        className="inline-flex items-center gap-1.5 rounded-sm text-body-s text-accent transition-opacity duration-150 ease-instrument hover:opacity-80"
-                      >
-                        Open audit
-                        <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
-                      </Link>
-                      <div className="flex items-center gap-1">
-                        {project.status === "active" ? (
-                          <Button
-                            variant="tertiary"
-                            size="sm"
-                            onClick={() => handleArchive(project.id)}
-                            aria-label={`Archive ${project.name}`}
-                          >
-                            <Archive className="h-4 w-4" aria-hidden="true" />
-                          </Button>
-                        ) : (
-                          <Button
-                            variant="tertiary"
-                            size="sm"
-                            onClick={() => handleUnarchive(project.id)}
-                            aria-label={`Restore ${project.name}`}
-                          >
-                            <RotateCcw className="h-4 w-4" aria-hidden="true" />
-                          </Button>
-                        )}
-                        <Button
-                          variant="tertiary"
-                          size="sm"
-                          onClick={() => setPendingDelete(project)}
-                          aria-label={`Delete ${project.name}`}
+                        <a
+                          href={project.website_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-2 inline-flex items-center gap-1.5 text-body-s text-ink-secondary transition-colors duration-150 ease-instrument hover:text-accent"
                         >
-                          <Trash2 className="h-4 w-4" aria-hidden="true" />
-                        </Button>
-                      </div>
-                    </div>
-                  </Panel>
-                ))}
+                          <Globe className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                          <span className="truncate">{project.website_url}</span>
+                          <ExternalLink className="h-3 w-3 shrink-0 opacity-70" aria-hidden="true" />
+                        </a>
+
+                        <div className="mt-4 rounded-sm border border-line-subtle bg-surface-sunken px-3 py-2">
+                          <span className="font-mono text-mono-micro uppercase text-ink-tertiary">
+                            Target query
+                          </span>
+                          <p className="mt-1 truncate font-mono text-mono-data text-ink-primary">
+                            {project.target_keyword}
+                          </p>
+                        </div>
+
+                        <div className="mt-auto flex items-center justify-between gap-2 border-t border-line-subtle pt-4">
+                          <Link
+                            href={`/projects/${project.id}`}
+                            className="inline-flex items-center gap-1.5 rounded-sm text-body-s text-accent transition-opacity duration-150 ease-instrument hover:opacity-80"
+                          >
+                            Open audit
+                            <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
+                          </Link>
+                          <div className="flex items-center gap-1">
+                            {project.status === "active" ? (
+                              <Button
+                                variant="tertiary"
+                                size="sm"
+                                onClick={() => handleArchive(project.id)}
+                                aria-label={`Archive ${project.name}`}
+                              >
+                                <Archive className="h-4 w-4" aria-hidden="true" />
+                              </Button>
+                            ) : (
+                              <Button
+                                variant="tertiary"
+                                size="sm"
+                                onClick={() => handleUnarchive(project.id)}
+                                aria-label={`Restore ${project.name}`}
+                              >
+                                <RotateCcw className="h-4 w-4" aria-hidden="true" />
+                              </Button>
+                            )}
+                            <Button
+                              variant="tertiary"
+                              size="sm"
+                              onClick={() => setPendingDelete(project)}
+                              aria-label={`Delete ${project.name}`}
+                            >
+                              <Trash2 className="h-4 w-4" aria-hidden="true" />
+                            </Button>
+                          </div>
+                        </div>
+                      </Panel>
+                    ))}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-        </section>
+            </section>
+          </>
+        ) : null}
       </main>
 
       <Dialog

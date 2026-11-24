@@ -105,6 +105,8 @@ class Competitor(Base):
     title: Mapped[str] = mapped_column(Text, default="")
     word_count: Mapped[int] = mapped_column(Integer, default=0)
     similarity: Mapped[float] = mapped_column(Float, default=0)
+    content_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    fetch_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class ContentGap(Base):

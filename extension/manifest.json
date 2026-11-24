@@ -1,13 +1,12 @@
 {
   "manifest_version": 3,
   "name": "Rankace — Live SEO Assistant & Page Inspector",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Live SEO side panel: on-page score, page facts, SERP preview, structured data, social and link profile, visual bounding boxes, one-click auto-fix with corrected HTML export, and a right-click SEO quick-tool menu.",
   "permissions": [
     "sidePanel",
     "activeTab",
     "scripting",
-    "storage",
     "contextMenus"
   ],
   "host_permissions": [

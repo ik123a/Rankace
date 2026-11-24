@@ -14,18 +14,18 @@ logger = logging.getLogger(__name__)
 
 def startup():
     init_db()
+    if not settings.demo_enabled:
+        return
     try:
         from app.models import User
         from app.core.database import SessionLocal
         from app.core.security import hash_password
         db = SessionLocal()
         try:
-            demo_user = db.query(User).filter(User.email == settings.demo_email).first()
+            demo_email = settings.demo_email.lower()
+            demo_user = db.query(User).filter(User.email == demo_email).first()
             if not demo_user:
-                db.add(User(name="Demo User", email=settings.demo_email, password_hash=hash_password(settings.demo_password)))
-                db.commit()
-            else:
-                demo_user.password_hash = hash_password(settings.demo_password)
+                db.add(User(name="Demo User", email=demo_email, password_hash=hash_password(settings.demo_password)))
                 db.commit()
         finally:
             db.close()

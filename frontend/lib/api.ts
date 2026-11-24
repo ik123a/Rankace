@@ -14,7 +14,6 @@ export function setToken(token: string): void {
 export function logout(): void {
   if (typeof window !== "undefined") {
     localStorage.removeItem("rankace_token");
-    window.location.href = "/login";
   }
 }
 
@@ -23,7 +22,7 @@ export function authHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-export async function api<T = any>(path: string, options: RequestInit = {}): Promise<T> {
+export async function api<T = unknown>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = {
     "Content-Type": "application/json",
     ...authHeaders(),

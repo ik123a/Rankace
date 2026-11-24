@@ -34,8 +34,8 @@ export default function LoginPage() {
   const router = useRouter();
   const [mode, setMode] = useState<"login" | "register">("login");
   const [name, setName] = useState("");
-  const [email, setEmail] = useState("demo@rankace.local");
-  const [password, setPassword] = useState("demo1234");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [readout, setReadout] = useState<Readout>(OFFLINE);
@@ -76,7 +76,7 @@ export default function LoginPage() {
     try {
       const endpoint = mode === "login" ? "/api/auth/login" : "/api/auth/register";
       const payload = mode === "login" ? { email, password } : { name, email, password };
-      const data = await api(endpoint, {
+      const data = await api<{ access_token: string }>(endpoint, {
         method: "POST",
         body: JSON.stringify(payload)
       });
@@ -92,12 +92,6 @@ export default function LoginPage() {
     } finally {
       setLoading(false);
     }
-  }
-
-  function fillDemo() {
-    setEmail("demo@rankace.local");
-    setPassword("demo1234");
-    setMode("login");
   }
 
   return (
@@ -185,9 +179,9 @@ export default function LoginPage() {
 
           <div className="mt-6 flex items-center justify-between gap-3 border-t border-line-subtle pt-6">
             <p className="text-label text-ink-tertiary">Just exploring?</p>
-            <Button variant="tertiary" size="sm" onClick={fillDemo}>
+            <Button variant="tertiary" size="sm" href="/dashboard?demo=1">
               <FlaskConical className="h-3.5 w-3.5" aria-hidden="true" />
-              Use demo credentials
+              View demo dashboard
             </Button>
           </div>
         </div>

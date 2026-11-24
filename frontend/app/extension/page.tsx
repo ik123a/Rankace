@@ -129,7 +129,7 @@ export default function ExtensionPage() {
               Audit the page you are looking at, right now
             </h1>
             <p className="measure text-body-l text-ink-secondary">
-              The Rankace inspector runs entirely in your browser. It reads the live DOM, scores what it
+              Rankace runs page audits in your browser. It reads the live DOM, scores what it
               finds, and draws a box around every element that needs work — so you can see the defect
               and the markup it came from at the same time.
             </p>
@@ -147,7 +147,7 @@ export default function ExtensionPage() {
           </div>
 
           <p className="text-body-s text-ink-tertiary">
-            Unpacked, no store listing, no permissions beyond reading the page. Manifest v{VERSION}.
+            Install as an unpacked Chrome extension. It requests access to all sites for page inspection, plus side-panel, scripting, active-tab, and context-menu permissions.
           </p>
         </section>
 
@@ -193,8 +193,8 @@ export default function ExtensionPage() {
               <h3 className="text-title-m text-ink-primary">One-click Auto-Fix</h3>
               <p className="text-body-s text-ink-secondary">
                 Derives and writes the missing title, meta description, canonical, lang, viewport and
-                charset; strips noindex; demotes duplicate H1s; fills image alt text from filenames; and
-                adds rel="noopener" to blank-target links. The score re-runs immediately — a page
+                charset; preserves indexing directives; demotes duplicate H1s; fills image alt text from filenames; and
+                adds <code>rel=&quot;noopener&quot;</code> to blank-target links. The score re-runs immediately — a page
                 we tested moved from 4 to 86 in one pass. Fixes live only in that tab; reload discards them.
               </p>
             </Panel>
@@ -222,8 +222,7 @@ export default function ExtensionPage() {
               <h3 className="text-title-m text-ink-primary">Knows what it cannot fix</h3>
               <p className="text-body-s text-ink-secondary">
                 Anything requiring judgement — a written title, a meta refresh that might be the routing —
-                is listed under "needs a human decision" instead of being guessed at. Page-supplied
-                strings are never copied into the exported file, so the output cannot carry injected markup.
+                is listed for manual review. Review the exported HTML before publishing it.
               </p>
             </Panel>
           </div>

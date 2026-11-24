@@ -83,7 +83,7 @@ type ContentGapRow = {
   competitor_coverage: boolean;
   gap_level: string;
 };
-type CompetitorRow = { id: number; url: string; title: string; word_count: number; similarity: number };
+type CompetitorRow = { id: number; url: string; title: string; word_count: number; similarity: number | null; fetch_error: string };
 type ExperimentRow = {
   id: number;
   title: string;
@@ -273,7 +273,8 @@ export default function ProjectIntelligencePage() {
   }
 
   useEffect(() => {
-    loadAll();
+    const timer = window.setTimeout(() => void loadAll(), 0);
+    return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
@@ -283,8 +284,11 @@ export default function ProjectIntelligencePage() {
   // Suspense boundary, and history.replaceState avoids polluting Back with one
   // entry per tab click.
   useEffect(() => {
-    const fromHash = window.location.hash.replace("#", "") as TabId;
-    if (TAB_IDS.includes(fromHash)) setActiveTab(fromHash);
+    const timer = window.setTimeout(() => {
+      const fromHash = window.location.hash.slice(1) as TabId;
+      if (TAB_IDS.includes(fromHash)) setActiveTab(fromHash);
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   // Elapsed counter while the crawl request is in flight. The crawl is a single
@@ -292,7 +296,6 @@ export default function ProjectIntelligencePage() {
   // for two minutes reads as a hang.
   useEffect(() => {
     if (!crawling) return;
-    setElapsed(0);
     const timer = window.setInterval(() => setElapsed((value) => value + 1), 1000);
     return () => window.clearInterval(timer);
   }, [crawling]);
@@ -320,7 +323,9 @@ export default function ProjectIntelligencePage() {
     if (activeTab !== "readiness") return;
     // Fetched on first visit to the tab, not on page load: it costs three
     // outbound requests to the audited site and most visits never open it.
-    if (!readiness && !readinessLoading && !readinessError) loadReadiness();
+    if (readiness || readinessLoading || readinessError) return;
+    const timer = window.setTimeout(() => void loadReadiness(), 0);
+    return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
@@ -331,6 +336,7 @@ export default function ProjectIntelligencePage() {
 
   async function handleTriggerCrawl() {
     if (!id) return;
+    setElapsed(0);
     setCrawling(true);
     setError("");
     try {
@@ -590,7 +596,7 @@ export default function ProjectIntelligencePage() {
       render: (row) => (
         <StatusTag
           kind={policyKind(row.policy)}
-          label={row.policy === "unknown" ? "not stated" : row.policy}
+          label={row.policy}
         />
       )
     }
@@ -1053,13 +1059,13 @@ export default function ProjectIntelligencePage() {
                         <h3 className="truncate text-title-m text-ink-primary">
                           {competitor.title || competitor.url}
                         </h3>
-                        <StatusTag kind="neutral" label={`${competitor.similarity}%`} />
+                        <StatusTag kind="neutral" label={competitor.similarity === null ? "Unmeasured" : `${competitor.similarity}%`} />
                       </div>
                       <p className="mt-2 truncate font-mono text-mono-data text-ink-secondary">
                         {competitor.url}
                       </p>
                       <p className="mt-3 font-mono text-mono-micro uppercase text-ink-tertiary">
-                        {competitor.word_count.toLocaleString()} words · semantic comparison
+                        {competitor.fetch_error || `${competitor.word_count.toLocaleString()} words · semantic comparison`}
                       </p>
                     </Panel>
                   ))}
@@ -1073,7 +1079,7 @@ export default function ProjectIntelligencePage() {
                 rowKey={(row) => row.topic}
                 loading={loading}
                 emptyTitle="No competitor gaps mapped"
-                emptyBody="Add a competitor above, then re-run the comparison to populate the gap matrix."
+                emptyBody="Add a competitor above, then run a new audit to populate the gap matrix."
               />
             </>
           ) : null}

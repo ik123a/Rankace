@@ -1,4 +1,6 @@
 # RANKACE: Master Project Report & Scientific Whitepaper
+
+> Historical project report. See the [README](README.md) for current setup, checks, and extension behavior.
 > **"An Explainable Search Visibility Intelligence and Autonomous Web Optimization Platform"**
 
 **Academic Course Alignment**: CSET488 Growth Hacking / Search Systems Engineering  

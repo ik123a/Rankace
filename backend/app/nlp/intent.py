@@ -43,10 +43,6 @@ def classify_intent(query: str) -> dict:
     if fallback:
         # Cap the default. It is a guess, and the UI shows this number.
         confidence = min(confidence, 0.35)
-    try:
-        from sklearn.feature_extraction.text import TfidfVectorizer  # noqa: F401
-    except Exception:
-        pass
     return {"intent": best, "confidence": confidence, "why": "; ".join(reasons) or "No strong signals.", "scores": scores}
 
 

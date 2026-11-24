@@ -85,7 +85,7 @@ Available from the drawer's **✨ Auto-Fix** button and the side panel's **Fix a
    - self-referencing `rel=canonical`
    - `<html lang>` from the browser locale
    - `viewport`, `charset=utf-8`
-   - strips `noindex` / `none` from the robots meta (keeps every other directive)
+   - preserves existing robots directives and flags indexability for manual review
    - demotes duplicate `<h1>`s to `<h2>`
    - fills missing `alt` text from image filenames
    - adds `rel="noopener"` to `target="_blank"` links
@@ -155,7 +155,7 @@ The side panel carries the same eight tools as clickable chips, built from the a
 
 ```text
 extension/
-├── manifest.json       # Manifest V3 (sidePanel, activeTab, scripting, storage, contextMenus)
+├── manifest.json       # Manifest V3 (sidePanel, activeTab, scripting, contextMenus)
 ├── background.js       # Service worker: 1-click activation + right-click SEO menu
 ├── content.js          # In-DOM live scanner, drawer, & visual bounding box engine
 ├── overlay.css         # Scoped styles for in-page drawer, bounding boxes, & tooltips

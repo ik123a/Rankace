@@ -1,5 +1,7 @@
 # Rankace — Work Report
 
+> Historical project report. See the [README](README.md) for current setup, checks, and extension behavior.
+
 A detailed explanation of what was changed, why, and how it was verified.
 Covers the full working session: correctness fixes across the stack and the
 v1.2 browser-extension upgrade (the largest piece of work).

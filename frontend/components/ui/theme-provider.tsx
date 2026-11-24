@@ -45,7 +45,7 @@ type ThemeContextValue = {
   theme: Theme;
   setTheme: (theme: Theme) => void;
   /** Re-apply the OS preference and drop any stored override. */
-  useSystemTheme: () => void;
+  followSystemTheme: () => void;
   /** True while the theme is tracking the OS rather than a stored choice. */
   followingSystem: boolean;
   toggleTheme: () => void;
@@ -57,7 +57,7 @@ type ThemeContextValue = {
 const ThemeContext = createContext<ThemeContextValue>({
   theme: "dark",
   setTheme: () => {},
-  useSystemTheme: () => {},
+  followSystemTheme: () => {},
   followingSystem: true,
   toggleTheme: () => {},
   mounted: false
@@ -73,18 +73,21 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    const attr = document.documentElement.getAttribute("data-theme");
-    setThemeState(attr === "light" ? "light" : "dark");
-    // No stored key means the inline script fell through to the OS
-    // preference, so the app is following the system.
-    let stored: string | null = null;
-    try {
-      stored = localStorage.getItem(STORAGE_KEY);
-    } catch {
-      stored = null;
-    }
-    setFollowingSystem(stored !== "light" && stored !== "dark");
-    setMounted(true);
+    const frame = window.requestAnimationFrame(() => {
+      const attr = document.documentElement.getAttribute("data-theme");
+      setThemeState(attr === "light" ? "light" : "dark");
+      // No stored key means the inline script fell through to the OS
+      // preference, so the app is following the system.
+      let stored: string | null = null;
+      try {
+        stored = localStorage.getItem(STORAGE_KEY);
+      } catch {
+        stored = null;
+      }
+      setFollowingSystem(stored !== "light" && stored !== "dark");
+      setMounted(true);
+    });
+    return () => window.cancelAnimationFrame(frame);
   }, []);
 
   const setTheme = useCallback((next: Theme) => {
@@ -98,7 +101,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const useSystemTheme = useCallback(() => {
+  const followSystemTheme = useCallback(() => {
     const resolved = systemTheme();
     setThemeState(resolved);
     setFollowingSystem(true);
@@ -140,7 +143,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   }, [followingSystem]);
 
   return (
-    <ThemeContext.Provider value={{ theme, setTheme, useSystemTheme, followingSystem, toggleTheme, mounted }}>
+    <ThemeContext.Provider value={{ theme, setTheme, followSystemTheme, followingSystem, toggleTheme, mounted }}>
       {children}
     </ThemeContext.Provider>
   );

@@ -60,11 +60,9 @@ function Inner({ loading, children }: { loading: boolean; children: React.ReactN
 }
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(props, ref) {
-  const { variant = "primary", size = "md", loading = false, className, children } = props;
-  const cls = classes(variant, size, className);
-
   if (props.href !== undefined) {
-    const { href, variant: _variant, size: _size, loading: _loading, className: _className, children: _children, ...rest } = props;
+    const { href, variant = "primary", size = "md", loading = false, className, children, ...rest } = props;
+    const cls = classes(variant, size, className);
     return (
       <Link href={href} className={cls} aria-busy={loading || undefined} {...rest}>
         <Inner loading={loading}>{children}</Inner>
@@ -72,13 +70,14 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
     );
   }
 
-  const { variant: _v, size: _s, loading: _l, className: _c, children: _ch, type = "button", ...rest } = props;
+  const { variant = "primary", size = "md", loading = false, className, children, type = "button", disabled, ...rest } = props;
+  const cls = classes(variant, size, className);
   return (
     <button
       ref={ref}
       type={type}
       className={cls}
-      disabled={rest.disabled || loading}
+      disabled={disabled || loading}
       aria-busy={loading || undefined}
       {...rest}
     >

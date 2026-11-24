@@ -136,3 +136,36 @@ def test_robots_metadata_reaches_technical_analysis(meta_tags, expected_indexabl
     if noindex_issues:
         assert noindex_issues[0]["page_url"] == url
 
+
+
+def test_page_and_robots_share_validated_transport(monkeypatch):
+    import gzip
+
+    import httpx
+
+    from app.crawler import crawler
+
+    requests = []
+
+    def respond(request):
+        assert request.url.host == "93.184.215.14"
+        assert request.headers["host"] == "example.com"
+        assert request.extensions["sni_hostname"] == "example.com"
+        assert request.headers["user-agent"].startswith("RankaceBot/")
+        requests.append(request.url.path)
+        if request.url.path == "/robots.txt":
+            return httpx.Response(200, text="User-agent: *\nAllow: /")
+        if request.url.path == "/":
+            return httpx.Response(301, headers={"location": "/guide"})
+        return httpx.Response(
+            200, headers={"content-type": "text/html", "content-encoding": "gzip"},
+            stream=httpx.ByteStream(gzip.compress(b"<title>Trail guide</title><h1>Trail guide</h1>")),
+        )
+
+    httpx_client = httpx.Client
+    transport = httpx.MockTransport(respond)
+    monkeypatch.setattr(crawler.httpx, "Client", lambda **kwargs: httpx_client(transport=transport, **kwargs))
+    page = crawler.fetch_page("https://example.com/")
+    assert requests == ["/robots.txt", "/", "/guide"]
+    assert page.url == "https://example.com/guide"
+    assert page.title == "Trail guide"
