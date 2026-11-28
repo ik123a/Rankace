@@ -1,26 +1,6 @@
 import type { Metadata, Viewport } from "next";
-import { JetBrains_Mono, Space_Grotesk } from "next/font/google";
 import { ThemeProvider, themeScript } from "../components/ui/theme-provider";
 import "./globals.css";
-
-const display = Space_Grotesk({
-  subsets: ["latin"],
-  weight: ["300", "400", "500", "600", "700"],
-  // "optional" lets the browser skip the webfont entirely when it is not
-  // cached and paint the fallback instead -- the page looks wrong and never
-  // corrects itself. "swap" is the only value that guarantees the real face.
-  display: "swap",
-  variable: "--font-display",
-  preload: true
-});
-
-const mono = JetBrains_Mono({
-  subsets: ["latin"],
-  weight: ["400", "500", "700"],
-  display: "swap",
-  variable: "--font-mono",
-  preload: true
-});
 
 export const metadata: Metadata = {
   title: {
@@ -60,7 +40,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     // data-theme on <html> before React hydrates, so the server-rendered
     // attributes and the DOM can legitimately differ. Those attributes are
     // not used for anything React owns, so this is safe.
-    <html lang="en" className={`${display.variable} ${mono.variable}`} suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning>
       <head>
         {/* Runs before first paint so a light-theme user never sees a dark
             flash. Kept in sync with ThemeProvider's resolution order. */}
