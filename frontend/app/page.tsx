@@ -6,7 +6,7 @@ import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { useGSAP } from "@gsap/react";
 import { ArrowRight, FlaskConical, GitCompare, Globe2, Radar, ShieldCheck } from "lucide-react";
-import { resolveApiBase } from "../lib/api";
+import { fetchApi } from "../lib/api";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/field";
 import { Panel } from "../components/ui/panel";
@@ -87,8 +87,8 @@ export default function LandingPage() {
     setLoading(true);
     setSandboxQuery(queryToTest);
     try {
-      const res = await fetch(
-        `${resolveApiBase()}/api/projects/intent/classify?query=${encodeURIComponent(queryToTest)}`
+      const res = await fetchApi(
+        `/api/projects/intent/classify?query=${encodeURIComponent(queryToTest)}`
       );
       if (res.ok) {
         const data = (await res.json()) as IntentResult;

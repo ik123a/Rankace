@@ -32,6 +32,37 @@ export function authHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+/** Fetch an API path from the configured backend, falling back to same-origin Next.js routes if local backend is offline. */
+export async function fetchApi(path: string, options: RequestInit = {}): Promise<Response> {
+  const base = resolveApiBase();
+  try {
+    return await fetch(`${base}${path}`, options);
+  } catch (err) {
+    if (base && !process.env.NEXT_PUBLIC_API_URL && typeof window !== "undefined") {
+      return await fetch(path, options);
+    }
+    throw err;
+  }
+}
+
+function formatApiError(status: number, statusText: string, raw: string): string {
+  if (raw) {
+    const trimmed = raw.trim();
+    if (trimmed.startsWith("<")) {
+      return `HTTP ${status}: ${statusText || "Endpoint unavailable"}`;
+    }
+    try {
+      const errData = JSON.parse(raw);
+      if (errData && errData.detail) {
+        return typeof errData.detail === "string" ? errData.detail : JSON.stringify(errData.detail);
+      }
+    } catch {
+      return trimmed.slice(0, 240);
+    }
+  }
+  return `Request failed: ${status}`;
+}
+
 export async function api<T = any>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = {
     "Content-Type": "application/json",
@@ -39,34 +70,15 @@ export async function api<T = any>(path: string, options: RequestInit = {}): Pro
     ...(options.headers || {}),
   };
 
-  const res = await fetch(`${resolveApiBase()}${path}`, {
+  const res = await fetchApi(path, {
     ...options,
     headers,
   });
 
-  // Read the body ONCE as text. The previous version called res.json() and then
-  // fell back to res.text() inside the catch -- but the body stream is already
-  // consumed by then, so the fallback always threw "body used already" and the
-  // real error detail was lost. Reading text first keeps both paths possible
-  // and tolerates the empty body that a 204 returns (JSON.parse("") throws).
   const raw = await res.text();
 
   if (!res.ok) {
-    let errorMsg = `Request failed: ${res.status}`;
-    if (raw) {
-      try {
-        const errData = JSON.parse(raw);
-        if (errData && errData.detail) {
-          errorMsg =
-            typeof errData.detail === "string" ? errData.detail : JSON.stringify(errData.detail);
-        } else {
-          errorMsg = raw;
-        }
-      } catch {
-        errorMsg = raw;
-      }
-    }
-    throw new Error(errorMsg);
+    throw new Error(formatApiError(res.status, res.statusText, raw));
   }
 
   if (!raw) return undefined as T;
@@ -78,23 +90,15 @@ export async function api<T = any>(path: string, options: RequestInit = {}): Pro
 }
 
 export async function downloadBlob(path: string, defaultFilename: string): Promise<void> {
-  const res = await fetch(`${resolveApiBase()}${path}`, {
+  const res = await fetchApi(path, {
     headers: {
       ...authHeaders(),
     },
   });
 
   if (!res.ok) {
-    // The API answers every failure with a JSON `detail`; surfacing only the
-    // status code told the user "418" instead of "no crawl has run yet".
-    let detail = "";
-    try {
-      const payload = await res.json();
-      if (payload && typeof payload.detail === "string") detail = payload.detail;
-    } catch {
-      detail = "";
-    }
-    throw new Error(detail || `Download failed with status ${res.status}`);
+    const raw = await res.text().catch(() => "");
+    throw new Error(formatApiError(res.status, res.statusText, raw));
   }
 
   const blob = await res.blob();
