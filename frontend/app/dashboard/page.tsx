@@ -99,6 +99,14 @@ function DashboardContent() {
     }
 
     try {
+      if (showDemoParam && !token) {
+        const demo = await api<DemoData>("/api/demo").catch(() => null);
+        setProjects([]);
+        setOverview(null);
+        setDemoData(demo);
+        return;
+      }
+
       // The aggregate is a separate, optional read: a failure there must not
       // take down the roster, which is the page's actual job.
       const [data, summary] = await Promise.all([

@@ -194,7 +194,7 @@ export default function ExtensionPage() {
               <p className="text-body-s text-ink-secondary">
                 Derives and writes the missing title, meta description, canonical, lang, viewport and
                 charset; strips noindex; demotes duplicate H1s; fills image alt text from filenames; and
-                adds rel="noopener" to blank-target links. The score re-runs immediately — a page
+                adds rel=&quot;noopener&quot; to blank-target links. The score re-runs immediately — a page
                 we tested moved from 4 to 86 in one pass. Fixes live only in that tab; reload discards them.
               </p>
             </Panel>
@@ -222,7 +222,7 @@ export default function ExtensionPage() {
               <h3 className="text-title-m text-ink-primary">Knows what it cannot fix</h3>
               <p className="text-body-s text-ink-secondary">
                 Anything requiring judgement — a written title, a meta refresh that might be the routing —
-                is listed under "needs a human decision" instead of being guessed at. Page-supplied
+                is listed under &quot;needs a human decision&quot; instead of being guessed at. Page-supplied
                 strings are never copied into the exported file, so the output cannot carry injected markup.
               </p>
             </Panel>

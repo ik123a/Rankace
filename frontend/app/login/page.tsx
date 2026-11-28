@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, FlaskConical } from "lucide-react";
-import { api, setToken, API_URL } from "../../lib/api";
+import { api, setToken, resolveApiBase } from "../../lib/api";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/field";
 import { Panel } from "../../components/ui/panel";
@@ -46,7 +46,7 @@ export default function LoginPage() {
     async function probe() {
       try {
         const res = await fetch(
-          `${API_URL}/api/projects/intent/classify?query=${encodeURIComponent(SAMPLE_QUERY)}`
+          `${resolveApiBase()}/api/projects/intent/classify?query=${encodeURIComponent(SAMPLE_QUERY)}`
         );
         if (!res.ok) return;
         const data = (await res.json()) as { intent: string; confidence: number; why: string };

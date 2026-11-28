@@ -7,14 +7,14 @@ from app.core.config import settings
 
 
 def hash_password(password: str) -> str:
-    pwd_bytes = (password or "")[:72].encode("utf-8")
+    pwd_bytes = (password or "").encode("utf-8")[:72]
     salt = bcrypt.gensalt()
     return bcrypt.hashpw(pwd_bytes, salt).decode("utf-8")
 
 
 def verify_password(password: str, password_hash: str) -> bool:
     try:
-        pwd_bytes = (password or "")[:72].encode("utf-8")
+        pwd_bytes = (password or "").encode("utf-8")[:72]
         hash_bytes = (password_hash or "").encode("utf-8")
         return bcrypt.checkpw(pwd_bytes, hash_bytes)
     except Exception:

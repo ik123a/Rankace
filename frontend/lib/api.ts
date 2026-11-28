@@ -1,5 +1,14 @@
 export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+/** Resolve backend origin; falls back to same-origin Next.js routes when hosted without NEXT_PUBLIC_API_URL. */
+export function resolveApiBase(): string {
+  if (process.env.NEXT_PUBLIC_API_URL) return process.env.NEXT_PUBLIC_API_URL;
+  if (typeof window !== "undefined" && !["localhost", "127.0.0.1"].includes(window.location.hostname)) {
+    return "";
+  }
+  return API_URL;
+}
+
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;
   return localStorage.getItem("rankace_token");
@@ -30,7 +39,7 @@ export async function api<T = any>(path: string, options: RequestInit = {}): Pro
     ...(options.headers || {}),
   };
 
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await fetch(`${resolveApiBase()}${path}`, {
     ...options,
     headers,
   });
@@ -69,7 +78,7 @@ export async function api<T = any>(path: string, options: RequestInit = {}): Pro
 }
 
 export async function downloadBlob(path: string, defaultFilename: string): Promise<void> {
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await fetch(`${resolveApiBase()}${path}`, {
     headers: {
       ...authHeaders(),
     },

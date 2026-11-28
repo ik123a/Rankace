@@ -153,10 +153,26 @@ console.log(`  verified: ${shipped.length} files shipped, 0 dev-only leaks`);
 const zipPath = join(ROOT, "frontend", "public", "download", zipName);
 try {
   if (existsSync(zipPath)) rmSync(zipPath);
-  execFileSync("zip", ["-r", "-q", zipName, "rankace-extension"], {
-    cwd: join(ROOT, "frontend", "public", "download"),
-    stdio: "pipe"
-  });
+  try {
+    execFileSync("zip", ["-r", "-q", zipName, "rankace-extension"], {
+      cwd: join(ROOT, "frontend", "public", "download"),
+      stdio: "pipe"
+    });
+  } catch (zipErr) {
+    if (process.platform === "win32" && zipErr && zipErr.code === "ENOENT") {
+      execFileSync(
+        "powershell.exe",
+        [
+          "-NoProfile",
+          "-Command",
+          `Add-Type -AssemblyName System.IO.Compression.FileSystem; [System.IO.Compression.ZipFile]::CreateFromDirectory('${OUT.replace(/'/g, "''")}', '${zipPath.replace(/'/g, "''")}')`
+        ],
+        { stdio: "pipe" }
+      );
+    } else {
+      throw zipErr;
+    }
+  }
   const bytes = readFileSync(zipPath);
   const isZip = bytes[0] === 0x50 && bytes[1] === 0x4b; // "PK"
   const isTar = bytes.subarray(257, 262).toString("latin1") === "ustar";

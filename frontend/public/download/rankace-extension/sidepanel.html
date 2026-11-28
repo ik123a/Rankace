@@ -6,7 +6,7 @@
   <title>Rankace SEO Assistant</title>
   <style>
     /* Rankace Side Panel — Search Field design system */
-    @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=optional");
+    /* Uses local system/installed UI & monospace fonts so offline views never error */
 
     :root {
       --surface-canvas: #08090a;
@@ -45,11 +45,12 @@
 
     body {
       background-color: var(--surface-canvas);
+      background-image: radial-gradient(ellipse 90% 35% at 50% 0%, rgba(255, 46, 107, 0.10), transparent 70%);
       color: var(--text-primary);
       font-family: var(--font-ui);
       font-size: 13px;
       line-height: 1.5;
-      padding: 14px;
+      padding: 12px 14px 18px;
       overflow-y: auto;
     }
 
@@ -1010,6 +1011,387 @@
     .glyph-lg { font-size: 20px; line-height: 1.2; }
     .txt-mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 
+    /* ---------- SERP & Social Card Simulator + Schema Inspector ---------- */
+
+    .sim-toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+      gap: 6px;
+    }
+
+    .sim-mode-group {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+    }
+
+    .sim-mode-btn {
+      padding: 3px 8px;
+      background: var(--surface-2);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      color: var(--text-tertiary);
+      font-family: var(--font-mono);
+      font-size: 9px;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+    }
+
+    .sim-mode-btn.active {
+      background: var(--accent-quiet);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .serp-preview.is-mobile {
+      max-width: 318px;
+    }
+
+    .social-card-box {
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+      background: var(--surface-2);
+    }
+
+    .social-card-img {
+      display: block;
+      width: 100%;
+      max-height: 140px;
+      object-fit: cover;
+      background: var(--surface-0);
+    }
+
+    .social-card-placeholder {
+      padding: 18px 10px;
+      text-align: center;
+      color: var(--text-tertiary);
+      font-family: var(--font-mono);
+      font-size: 10px;
+      background: var(--surface-0);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .social-card-body {
+      padding: 8px 10px;
+    }
+
+    .social-card-domain {
+      color: var(--text-tertiary);
+      font-family: var(--font-mono);
+      font-size: 9px;
+      text-transform: uppercase;
+    }
+
+    .social-card-title {
+      margin-top: 2px;
+      color: var(--text-primary);
+      font-size: 12px;
+      font-weight: 600;
+      line-height: 1.3;
+    }
+
+    .social-card-desc {
+      margin-top: 2px;
+      color: var(--text-secondary);
+      font-size: 10px;
+      line-height: 1.4;
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      overflow: hidden;
+    }
+
+    .sim-editor {
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px dashed var(--border-subtle);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .sim-field-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-family: var(--font-mono);
+      font-size: 9px;
+      color: var(--text-tertiary);
+    }
+
+    .sim-gauge.ok { color: var(--status-success); }
+    .sim-gauge.warn { color: var(--status-warning); }
+    .sim-gauge.bad { color: var(--status-error); }
+
+    .sim-input {
+      width: 100%;
+      padding: 6px 8px;
+      background: var(--surface-0);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      color: var(--text-primary);
+      font-family: inherit;
+      font-size: 11px;
+      box-sizing: border-box;
+    }
+
+    .sim-actions {
+      display: flex;
+      gap: 6px;
+    }
+
+    .btn-mini {
+      padding: 5px 9px;
+      background: var(--accent-quiet);
+      border: 1px solid var(--accent);
+      border-radius: var(--radius-sm);
+      color: var(--accent);
+      font-family: var(--font-mono);
+      font-size: 10px;
+      cursor: pointer;
+    }
+
+    .btn-mini.secondary {
+      background: var(--surface-2);
+      border-color: var(--border-subtle);
+      color: var(--text-secondary);
+    }
+
+    .schema-inspector-list {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      margin-top: 6px;
+    }
+
+    .schema-block-card {
+      padding: 6px 8px;
+      background: var(--surface-1);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      font-size: 10px;
+    }
+
+    .schema-block-head {
+      display: flex;
+      justify-content: space-between;
+      color: var(--text-primary);
+      font-family: var(--font-mono);
+      font-weight: 600;
+    }
+
+    .schema-block-meta {
+      margin-top: 2px;
+      color: var(--text-tertiary);
+      font-size: 10px;
+      word-break: break-word;
+    }
+
+    .schema-gen-row {
+      display: flex;
+      gap: 5px;
+      margin-top: 7px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .schema-select {
+      padding: 4px 6px;
+      background: var(--surface-0);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      color: var(--text-primary);
+      font-family: var(--font-mono);
+      font-size: 10px;
+    }
+
+    /* ---------- Compact Top Strip & 4-Tab Studio Layout ---------- */
+
+    .compact-controls {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-top: 10px;
+      padding: 7px 10px;
+      background: var(--surface-1);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius);
+    }
+
+    .compact-url-row {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      min-width: 0;
+      flex: 1;
+    }
+
+    .compact-hero-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 10px;
+    }
+
+    .btn-hero-fix {
+      flex: 1;
+      padding: 8px 12px;
+      background: linear-gradient(135deg, #c91e52, #9b153d);
+      border: 1px solid rgba(255, 84, 134, 0.45);
+      border-radius: var(--radius-sm);
+      color: #ffffff;
+      font-family: var(--font-ui);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.15s var(--ease), filter 0.15s var(--ease);
+    }
+
+    .btn-hero-fix:hover {
+      filter: brightness(1.08);
+      transform: translateY(-1px);
+    }
+
+    .studio-tabs {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 4px;
+      margin-top: 12px;
+      padding: 4px;
+      background: var(--surface-1);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius);
+    }
+
+    .studio-tab-btn {
+      padding: 7px 4px;
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      color: var(--text-tertiary);
+      font-family: var(--font-ui);
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      text-align: center;
+      white-space: nowrap;
+      transition: background-color 0.15s var(--ease), color 0.15s var(--ease), border-color 0.15s var(--ease);
+    }
+
+    .studio-tab-btn:hover {
+      color: var(--text-primary);
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .studio-tab-btn.active {
+      background: var(--surface-2);
+      border-color: var(--border-default);
+      color: var(--text-primary);
+      font-weight: 600;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+    }
+
+    .studio-panel {
+      margin-top: 12px;
+    }
+
+    .studio-panel[hidden] {
+      display: none !important;
+    }
+
+    /* ---------- Explainable Scorecard (Teacher-Friendly) ---------- */
+
+    .explain-card {
+      padding: 13px;
+      background: linear-gradient(180deg, rgba(255, 46, 107, 0.05), rgba(20, 23, 24, 0.95));
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius);
+    }
+
+    .explain-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+
+    .explain-title {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+      font-family: var(--font-mono);
+    }
+
+    .explain-verdict {
+      font-size: 12px;
+      color: var(--text-primary);
+      line-height: 1.5;
+    }
+
+    .pillar-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .pillar-row {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .pillar-meta {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      color: var(--text-secondary);
+    }
+
+    .pillar-track {
+      height: 6px;
+      background: var(--surface-sunken);
+      border-radius: 999px;
+      overflow: hidden;
+      border: 1px solid var(--border-subtle);
+    }
+
+    .pillar-fill {
+      height: 100%;
+      border-radius: 999px;
+      transition: width 0.4s var(--ease);
+    }
+
+    .pillar-fill.ok { background: var(--status-success); }
+    .pillar-fill.warn { background: var(--status-warning); }
+    .pillar-fill.bad { background: var(--status-error); }
+
+    .formula-box {
+      margin-top: 11px;
+      padding: 8px 10px;
+      background: var(--surface-sunken);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--text-secondary);
+      line-height: 1.45;
+    }
+
+    .plain-help {
+      margin-top: 4px;
+      margin-bottom: 8px;
+      color: var(--text-tertiary);
+      font-size: 11px;
+      line-height: 1.4;
+    }
+
     /* ---------- Focus + motion ---------- */
 
     button:focus-visible,
@@ -1036,47 +1418,33 @@
       <div class="logo-badge">⚡</div>
       <div class="brand-text">
         <h1>RANKACE</h1>
-        <p>Live Page Inspector</p>
+        <p>Visual SEO Studio</p>
       </div>
     </div>
-    <button id="btn-scan" class="btn-refresh" title="Re-scan current tab DOM">
-      🔄 Re-Scan
-    </button>
+    <div style="display:flex; gap:6px; align-items:center;">
+      <button id="btn-master-power" class="btn-power on" title="Toggle page bounding boxes ON / OFF">
+        <span class="power-icon">⏻</span>
+        <span id="btn-power-text">ON</span>
+      </button>
+      <button id="btn-scan" class="btn-refresh" title="Re-scan current tab DOM">
+        🔄 Scan
+      </button>
+    </div>
   </header>
 
-  <!-- Master Power Switch Card -->
-  <div class="power-card is-active" id="power-card">
-    <div class="power-card-left">
-      <div class="power-status-pill" id="power-status-pill">
-        <span class="power-dot active" id="power-dot"></span>
-        <span id="power-status-label">INSPECTOR ON</span>
-      </div>
-      <div class="power-status-sub" id="power-status-sub">
-        Bounding boxes active on page defects
-      </div>
-    </div>
-    <button id="btn-master-power" class="btn-power on" title="Click to toggle inspector ON / OFF">
-      <span class="power-icon">⏻</span>
-      <span id="btn-power-text">SWITCH OFF</span>
-    </button>
-  </div>
-
-  <!-- Audited Website Link Card -->
-  <div class="audited-link-card" id="audited-link-card">
-    <div class="audited-card-header">
-      <span class="audited-badge">AUDITED WEBPAGE</span>
-      <span id="audited-time" class="audited-time">Just now</span>
-    </div>
-    <div class="audited-url-box">
-      <span class="url-globe">🌐</span>
+  <!-- Compact URL + Overlay Status Strip -->
+  <div class="compact-controls" id="power-card">
+    <div class="compact-url-row">
+      <span class="power-dot active" id="power-dot"></span>
       <a id="audited-url-link" href="#" target="_blank" class="audited-url-text" title="Open inspected webpage in new tab">
         Loading active webpage...
       </a>
-      <button id="btn-copy-url" class="btn-copy-url" title="Copy website link">
-        📋 Copy
-      </button>
     </div>
-    <div id="audited-page-title" class="audited-page-title"></div>
+    <button id="btn-copy-url" class="btn-copy-url" title="Copy website link">Copy</button>
+    <span id="power-status-label" hidden>INSPECTOR ON</span>
+    <span id="power-status-sub" hidden>Bounding boxes active</span>
+    <span id="audited-time" hidden>Just now</span>
+    <span id="audited-page-title" hidden></span>
   </div>
 
   <!-- Score Hero Card -->
@@ -1085,7 +1453,7 @@
       <span id="score-number" class="score-number">--</span>
     </div>
     <div class="score-meta">
-      <div class="score-label">On-Page SEO Score</div>
+      <div class="score-label">On-Page Health Score</div>
       <div id="score-headline" class="score-headline">Analyzing...</div>
       <div class="counters-row">
         <span id="badge-crit" class="counter-pill counter-critical">0 Critical</span>
@@ -1094,125 +1462,198 @@
     </div>
   </div>
 
-  <!-- Bounding Box Slider Option -->
-  <div class="master-switch-bar">
-    <div>
-      <div class="switch-label">
-        <span>🎯 Box Defects on Page</span>
-      </div>
-      <div class="switch-desc">Sync highlight bounding boxes with inspection</div>
-    </div>
-    <label class="toggle">
+  <div class="compact-hero-actions">
+    <button type="button" id="btn-hero-autofix" class="btn-hero-fix">✨ Auto-Fix Issues &amp; Preview Score Jump</button>
+    <label class="toggle" title="Highlight defects on the webpage">
       <input type="checkbox" id="toggle-highlight-all" checked>
       <span class="slider"></span>
     </label>
   </div>
 
-  <!-- Target Keyword & Live Intent Tester -->
-  <div class="keyword-section">
-    <div class="keyword-header">
-      <span>Target Keyword</span>
-      <span id="keyword-presence" class="keyword-presence"></span>
-    </div>
-    <div class="keyword-input-wrap">
-      <input type="text" id="target-keyword" class="keyword-input" placeholder="e.g. best running shoes" />
-      <button id="btn-intent" class="btn-intent">Classify Intent</button>
-    </div>
-    <div id="intent-result" class="intent-result"></div>
-  </div>
+  <!-- Clean 4-Tab Navigation -->
+  <nav class="studio-tabs" aria-label="Inspector sections">
+    <button type="button" class="studio-tab-btn active" data-studio-tab="overview">Overview</button>
+    <button type="button" class="studio-tab-btn" data-studio-tab="issues">Issues (<span id="tab-issues-count">0</span>)</button>
+    <button type="button" class="studio-tab-btn" data-studio-tab="preview">Fix &amp; Preview</button>
+    <button type="button" class="studio-tab-btn" data-studio-tab="tools">Tools</button>
+  </nav>
 
-  <!-- Filter Tabs -->
-  <div class="filter-tabs">
-    <button class="tab-btn active" data-filter="all">All (<span id="count-all">0</span>)</button>
-    <button class="tab-btn" data-filter="Metadata">Metadata</button>
-    <button class="tab-btn" data-filter="Headings">Headings</button>
-    <button class="tab-btn" data-filter="Images">Images</button>
-    <button class="tab-btn" data-filter="Links">Links</button>
-    <button class="tab-btn" data-filter="Content">Content</button>
-    <button class="tab-btn" data-filter="Indexability">Indexability</button>
-    <button class="tab-btn" data-filter="Social">Social</button>
-    <button class="tab-btn" data-filter="Schema">Schema</button>
-    <button class="tab-btn" data-filter="Technical">Technical</button>
-  </div>
-
-  <!-- Issues Feed -->
-  <div id="issues-feed" class="issues-feed">
-    <div class="empty-state">Auditing current page elements...</div>
-  </div>
-
-  <!-- SERP preview + full page details -->
-  <div class="serp-preview" id="serp-preview" aria-label="Search result preview">
-    <div id="serp-url" class="serp-url">—</div>
-    <div id="serp-title" class="serp-title">—</div>
-    <div id="serp-desc" class="serp-desc">—</div>
-  </div>
-
-  <div class="detail-section">
-    <div class="detail-title">Page Details</div>
-    <div class="detail-grid" id="facts-grid">
-      <div class="detail-row"><div class="detail-label">Loading</div><div class="detail-value">—</div></div>
-    </div>
-
-    <div class="detail-title" style="margin-top: 12px;">Structured Data</div>
-    <div class="chip-row" id="schema-chips"><span class="chip">Not scanned</span></div>
-
-    <div class="detail-title" style="margin-top: 12px;">Social Previews</div>
-    <div class="chip-row" id="social-chips"><span class="chip">Not scanned</span></div>
-
-    <div class="detail-title" style="margin-top: 12px;">Link Profile</div>
-    <div class="chip-row" id="link-chips"><span class="chip">Not scanned</span></div>
-
-    <div class="detail-title" style="margin-top: 12px;">Heading Outline</div>
-    <div class="outline-list" id="heading-outline">
-      <div class="outline-item"><span class="outline-text">Not scanned</span></div>
-    </div>
-
-    <button id="btn-copy-report" class="btn-wide">📋 Copy Full Report</button>
-  </div>
-
-  <!-- Auto-Fix & corrected-file export -->
-  <div class="detail-section" id="autofix-section">
-    <div class="detail-title">Auto-Fix & Export</div>
-    <div class="autofix-note">
-      The extension corrects everything it can fix safely — title, description, canonical,
-      lang, viewport, charset, noindex, duplicate H1s, alt text and link rel — then lets you
-      download the corrected page as an .html file.
-    </div>
-    <div id="autofix-results" class="autofix-results" hidden></div>
-    <button id="btn-autofix" class="btn-wide">✨ Fix all fixable issues</button>
-    <button id="btn-download-html" class="btn-wide btn-wide-secondary">⬇ Download corrected .html</button>
-  </div>
-
-  <!-- Quick SEO tools (same spirit as Detailed SEO's right-click links) -->
-  <div class="detail-section">
-    <div class="detail-title">Quick SEO Tools</div>
-    <div class="chip-row" id="quick-tools">
-      <span class="chip">Open a page to load tools</span>
-    </div>
-  </div>
-
-  <!-- Page Metrics Overview -->
-  <div class="metrics-section">
-    <div class="metrics-title">Page Overview Metrics</div>
-    <div class="metrics-grid">
-      <div class="metric-pill">
-        <div class="lbl">Word Count</div>
-        <div id="metric-words" class="val">--</div>
+  <!-- PANEL 1: OVERVIEW (Simple, Aesthetic, Explainable) -->
+  <section class="studio-panel" data-panel="overview">
+    <div class="explain-card" id="explain-summary-card">
+      <div class="explain-head">
+        <span class="explain-title">Plain-English Summary</span>
       </div>
-      <div class="metric-pill">
-        <div class="lbl">Reading Time</div>
-        <div id="metric-read" class="val">--</div>
-      </div>
-      <div class="metric-pill">
-        <div class="lbl">Headings Structure</div>
-        <div id="metric-headings" class="val">--</div>
-      </div>
-      <div class="metric-pill">
-        <div class="lbl">Images (Missing Alt)</div>
-        <div id="metric-images" class="val">--</div>
+      <div id="explain-verdict" class="explain-verdict">Scanning webpage structure, metadata, speed, and schema...</div>
+
+      <div class="pillar-list" id="explain-pillars"></div>
+
+      <div id="explain-formula" class="formula-box">
+        Scoring rule: 100 − (Critical × 9 + Warnings × 3) × 1.6
       </div>
     </div>
-  </div>
+
+    <div class="detail-section">
+      <div class="detail-title">Page Speed &amp; Core Web Vitals</div>
+      <div class="plain-help">Google checks how fast main content loads (LCP &lt; 2.5s), visual stability (CLS &lt; 0.1), and server reply (TTFB).</div>
+      <div class="chip-row" id="vitals-chips"><span class="chip">Measuring...</span></div>
+    </div>
+
+    <div class="metrics-section">
+      <div class="metrics-title">Content Snapshot</div>
+      <div class="metrics-grid">
+        <div class="metric-pill">
+          <div class="lbl">Word Count</div>
+          <div id="metric-words" class="val">--</div>
+        </div>
+        <div class="metric-pill">
+          <div class="lbl">Reading Time</div>
+          <div id="metric-read" class="val">--</div>
+        </div>
+        <div class="metric-pill">
+          <div class="lbl">Headings Structure</div>
+          <div id="metric-headings" class="val">--</div>
+        </div>
+        <div class="metric-pill">
+          <div class="lbl">Images (Missing Alt)</div>
+          <div id="metric-images" class="val">--</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PANEL 2: ISSUES -->
+  <section class="studio-panel" data-panel="issues" hidden>
+    <div class="filter-tabs">
+      <button class="tab-btn active" data-filter="all">All (<span id="count-all">0</span>)</button>
+      <button class="tab-btn" data-filter="Metadata">Metadata</button>
+      <button class="tab-btn" data-filter="Headings">Headings</button>
+      <button class="tab-btn" data-filter="Images">Images</button>
+      <button class="tab-btn" data-filter="Links">Links</button>
+      <button class="tab-btn" data-filter="Content">Content</button>
+      <button class="tab-btn" data-filter="Indexability">Indexability</button>
+      <button class="tab-btn" data-filter="Social">Social</button>
+      <button class="tab-btn" data-filter="Schema">Schema</button>
+      <button class="tab-btn" data-filter="Technical">Technical</button>
+    </div>
+
+    <div id="issues-feed" class="issues-feed">
+      <div class="empty-state">Auditing current page elements...</div>
+    </div>
+  </section>
+
+  <!-- PANEL 3: FIX & PREVIEW -->
+  <section class="studio-panel" data-panel="preview" hidden>
+    <div class="detail-section" id="autofix-section" style="margin-top:0;">
+      <div class="detail-title">1-Click Auto-Fix &amp; Clean HTML Export</div>
+      <div class="autofix-note">
+        Safely repairs missing canonicals, descriptions, language, alt text, duplicate H1s, and link attributes live on the page, then lets you export clean HTML.
+      </div>
+      <div id="autofix-results" class="autofix-results" hidden></div>
+      <button id="btn-autofix" class="btn-wide">✨ Fix all fixable issues</button>
+      <button id="btn-download-html" class="btn-wide btn-wide-secondary">⬇ Download corrected .html</button>
+    </div>
+
+    <div class="serp-preview" id="serp-preview" aria-label="Search and social result simulator">
+      <div class="sim-toolbar">
+        <div class="sim-mode-group">
+          <button type="button" class="sim-mode-btn active" data-sim-mode="desktop">Desktop SERP</button>
+          <button type="button" class="sim-mode-btn" data-sim-mode="mobile">Mobile SERP</button>
+          <button type="button" class="sim-mode-btn" data-sim-mode="social">Social Card</button>
+        </div>
+      </div>
+
+      <div id="serp-card-view">
+        <div id="serp-url" class="serp-url">—</div>
+        <div id="serp-title" class="serp-title">—</div>
+        <div id="serp-desc" class="serp-desc">—</div>
+      </div>
+
+      <div id="social-card-view" class="social-card-box" hidden>
+        <div id="social-card-media"></div>
+        <div class="social-card-body">
+          <div id="social-card-domain" class="social-card-domain">—</div>
+          <div id="social-card-title" class="social-card-title">—</div>
+          <div id="social-card-desc" class="social-card-desc">—</div>
+        </div>
+      </div>
+
+      <div class="sim-editor">
+        <div class="sim-field-row">
+          <span>Draft Title</span>
+          <span id="sim-title-gauge" class="sim-gauge">0 chars · 0px / 580px</span>
+        </div>
+        <input type="text" id="sim-title-input" class="sim-input" placeholder="Draft SEO title..." />
+
+        <div class="sim-field-row">
+          <span>Draft Meta Description</span>
+          <span id="sim-desc-gauge" class="sim-gauge">0 chars · 0px / 920px</span>
+        </div>
+        <textarea id="sim-desc-input" class="sim-input" rows="2" placeholder="Draft meta description..."></textarea>
+
+        <div class="sim-actions">
+          <button type="button" id="btn-sim-apply" class="btn-mini">Apply to Page</button>
+          <button type="button" id="btn-sim-reset" class="btn-mini secondary">Reset</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PANEL 4: TOOLS & DEEP DIVE -->
+  <section class="studio-panel" data-panel="tools" hidden>
+    <div class="keyword-section" style="margin-top:0;">
+      <div class="keyword-header">
+        <span>Target Keyword &amp; Search Intent</span>
+        <span id="keyword-presence" class="keyword-presence"></span>
+      </div>
+      <div class="plain-help">Checks if your keyword appears in Title/H1/Meta and asks RankAce NLP why users search it.</div>
+      <div class="keyword-input-wrap">
+        <input type="text" id="target-keyword" class="keyword-input" placeholder="e.g. best running shoes" />
+        <button id="btn-intent" class="btn-intent">Classify Intent</button>
+      </div>
+      <div id="intent-result" class="intent-result"></div>
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-title">Structured Data (JSON-LD) &amp; Generator</div>
+      <div class="plain-help">Structured data helps search engines display rich cards, FAQs, and site info.</div>
+      <div class="chip-row" id="schema-chips"><span class="chip">Not scanned</span></div>
+      <div id="schema-inspector" class="schema-inspector-list"></div>
+      <div class="schema-gen-row">
+        <select id="schema-type-select" class="schema-select" aria-label="Schema template type">
+          <option value="WebPage">WebPage</option>
+          <option value="Article">Article</option>
+          <option value="Organization">Organization</option>
+          <option value="FAQPage">FAQPage</option>
+        </select>
+        <button type="button" id="btn-schema-copy" class="btn-mini secondary">Copy JSON-LD</button>
+        <button type="button" id="btn-schema-inject" class="btn-mini">Inject into Page</button>
+      </div>
+
+      <div class="detail-title" style="margin-top: 14px;">Technical &amp; Page Details</div>
+      <div class="detail-grid" id="facts-grid">
+        <div class="detail-row"><div class="detail-label">Loading</div><div class="detail-value">—</div></div>
+      </div>
+
+      <div class="detail-title" style="margin-top: 14px;">Social Previews</div>
+      <div class="chip-row" id="social-chips"><span class="chip">Not scanned</span></div>
+
+      <div class="detail-title" style="margin-top: 14px;">Link Profile</div>
+      <div class="chip-row" id="link-chips"><span class="chip">Not scanned</span></div>
+
+      <div class="detail-title" style="margin-top: 14px;">Heading Outline</div>
+      <div class="outline-list" id="heading-outline">
+        <div class="outline-item"><span class="outline-text">Not scanned</span></div>
+      </div>
+
+      <div class="detail-title" style="margin-top: 14px;">Quick SEO Tools</div>
+      <div class="chip-row" id="quick-tools">
+        <span class="chip">Open a page to load tools</span>
+      </div>
+
+      <button id="btn-copy-report" class="btn-wide">📋 Copy Full Report</button>
+    </div>
+  </section>
 
   <script src="sidepanel.js"></script>
 </body>

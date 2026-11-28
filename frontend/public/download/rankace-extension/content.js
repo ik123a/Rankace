@@ -12,6 +12,68 @@
   let allHighlighted = false;
   let isInspectionEnabled = true;
 
+  const vitalsState = { lcpMs: null, cls: 0 };
+
+  /** Observe live Core Web Vitals metrics (LCP and CLS) when supported. */
+  function initVitalsObservers() {
+    if (typeof PerformanceObserver !== "function") return;
+    try {
+      const lcpObs = new PerformanceObserver((list) => {
+        const entries = list.getEntries();
+        if (entries.length) {
+          vitalsState.lcpMs = Math.round(entries[entries.length - 1].startTime);
+        }
+      });
+      lcpObs.observe({ type: "largest-contentful-paint", buffered: true });
+    } catch (e) { /* unsupported */ }
+
+    try {
+      const clsObs = new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) {
+          if (!entry.hadRecentInput && typeof entry.value === "number") {
+            vitalsState.cls = Math.round((vitalsState.cls + entry.value) * 1000) / 1000;
+          }
+        }
+      });
+      clsObs.observe({ type: "layout-shift", buffered: true });
+    } catch (e) { /* unsupported */ }
+  }
+  initVitalsObservers();
+
+  /** Snapshot current LCP, CLS, TTFB, and DOMContentLoaded timing in ms. */
+  function getPageVitals() {
+    let ttfbMs = null;
+    let dclMs = null;
+    try {
+      const nav = performance.getEntriesByType && performance.getEntriesByType("navigation")[0];
+      if (nav) {
+        if (typeof nav.responseStart === "number" && nav.responseStart > 0) {
+          ttfbMs = Math.round(nav.responseStart);
+        }
+        if (typeof nav.domContentLoadedEventEnd === "number" && nav.domContentLoadedEventEnd > 0) {
+          dclMs = Math.round(nav.domContentLoadedEventEnd);
+        }
+      }
+    } catch (e) { /* ignore */ }
+    return {
+      lcpMs: vitalsState.lcpMs,
+      cls: vitalsState.cls,
+      ttfbMs,
+      domContentLoadedMs: dclMs
+    };
+  }
+
+  const SCHEMA_RECOMMENDED_FIELDS = {
+    Article: ["headline", "author", "datePublished", "image"],
+    NewsArticle: ["headline", "author", "datePublished", "image"],
+    BlogPosting: ["headline", "author", "datePublished", "image"],
+    Organization: ["name", "url", "logo"],
+    WebPage: ["name", "url", "description"],
+    Product: ["name", "offers"],
+    FAQPage: ["mainEntity"],
+    BreadcrumbList: ["itemListElement"]
+  };
+
   // -------------------------------------------------------------
   // 1. LIVE ON-PAGE AUDIT ENGINE
   // -------------------------------------------------------------
@@ -435,26 +497,65 @@
     // L. Structured data ---------------------------------------------
     const jsonLdBlocks = Array.from(document.querySelectorAll('script[type="application/ld+json"]'));
     const jsonLdTypes = [];
+    const schemaItems = [];
     let invalidJsonLd = 0;
-    jsonLdBlocks.forEach((block) => {
+    jsonLdBlocks.forEach((block, blockIndex) => {
       const raw = block.textContent || "";
       if (!raw.trim()) return;
       try {
         const parsed = JSON.parse(raw);
+        const blockTypes = [];
+        const missingFields = new Set();
+        const blockKeys = new Set();
         const visit = (node) => {
           if (!node || typeof node !== "object") return;
           if (Array.isArray(node)) {
             node.forEach(visit);
             return;
           }
+          Object.keys(node).forEach((k) => {
+            if (!k.startsWith("@")) blockKeys.add(k);
+          });
           const type = node["@type"];
-          if (typeof type === "string") jsonLdTypes.push(type);
-          if (Array.isArray(type)) type.forEach((t) => typeof t === "string" && jsonLdTypes.push(t));
+          const nodeTypes = typeof type === "string"
+            ? [type]
+            : Array.isArray(type)
+              ? type.filter((t) => typeof t === "string")
+              : [];
+          nodeTypes.forEach((t) => {
+            jsonLdTypes.push(t);
+            blockTypes.push(t);
+            const expected = SCHEMA_RECOMMENDED_FIELDS[t] || [];
+            expected.forEach((field) => {
+              const val = node[field];
+              if (val === undefined || val === null || val === "" || (Array.isArray(val) && !val.length)) {
+                missingFields.add(`${t}.${field}`);
+              }
+            });
+          });
           if (node["@graph"] && Array.isArray(node["@graph"])) node["@graph"].forEach(visit);
         };
         visit(parsed);
+        if (schemaItems.length < 6) {
+          schemaItems.push({
+            index: blockIndex + 1,
+            valid: true,
+            types: Array.from(new Set(blockTypes)),
+            keys: Array.from(blockKeys).slice(0, 6),
+            missing: Array.from(missingFields).slice(0, 4)
+          });
+        }
       } catch (err) {
         invalidJsonLd += 1;
+        if (schemaItems.length < 6) {
+          schemaItems.push({
+            index: blockIndex + 1,
+            valid: false,
+            types: [],
+            keys: [],
+            missing: ["Invalid JSON syntax"]
+          });
+        }
       }
     });
     const microdataItems = document.querySelectorAll("[itemscope][itemtype]").length;
@@ -676,9 +777,11 @@
         blocks: jsonLdBlocks.length,
         types: Array.from(new Set(jsonLdTypes)),
         invalidBlocks: invalidJsonLd,
-        microdataItems
+        microdataItems,
+        items: schemaItems
       },
       hreflang: { count: hreflangNodes.length, codes: hreflangCodes },
+      vitals: getPageVitals(),
       tech: {
         https: isHttps,
         mixedContent: mixedContent.length,
@@ -743,6 +846,7 @@
         metaDescription: metaDesc,
         metaDescLength: descLen,
         canonical,
+        h1: h1s.length ? (h1s[0].textContent || "").trim() : "",
         h1Count: h1s.length,
         h2Count: h2s.length,
         h3Count: h3s.length,
@@ -771,9 +875,16 @@
   // -------------------------------------------------------------
   // 2. PRECISION DOM PATH GENERATOR
   // -------------------------------------------------------------
+  function escapeSelectorIdent(value) {
+    if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+      return CSS.escape(value);
+    }
+    return String(value).replace(/[^a-zA-Z0-9_-]/g, "\\$&");
+  }
+
   function getElementPath(el) {
     if (!el || el.nodeType !== Node.ELEMENT_NODE) return "";
-    if (el.id) return `#${el.id}`;
+    if (el.id) return `#${escapeSelectorIdent(el.id)}`;
     if (el.tagName.toLowerCase() === "body") return "body";
 
     let path = [];
@@ -781,9 +892,12 @@
     while (current && current.nodeType === Node.ELEMENT_NODE && current.tagName.toLowerCase() !== "body") {
       let selector = current.tagName.toLowerCase();
       if (current.className && typeof current.className === "string") {
-        const classes = current.className.trim().split(/\s+/).filter(c => !c.startsWith("rankace-") && c.length < 30);
+        const classes = current.className
+          .trim()
+          .split(/\s+/)
+          .filter(c => c && !c.startsWith("rankace-") && c.length < 30);
         if (classes.length > 0) {
-          selector += `.${classes[0]}`;
+          selector += `.${escapeSelectorIdent(classes[0])}`;
         }
       }
       let parent = current.parentElement;
@@ -813,7 +927,14 @@
 
   function highlightSingleElement(targetSelector, issue) {
     clearAllHighlights();
-    const el = document.querySelector(targetSelector);
+    let el = null;
+    if (targetSelector) {
+      try {
+        el = document.querySelector(targetSelector);
+      } catch (e) {
+        el = null;
+      }
+    }
     if (!el) {
       console.warn("Rankace: Target element not found for selector:", targetSelector);
       return false;
@@ -1281,20 +1402,20 @@
 
     // Copy the whole audit as text, so a finding can leave the browser.
     const drawerCopyReport = body.querySelector("#rankace-drawer-copy-report");
-    if (drawerCopyReport) {
+    if (drawerCopyReport && navigator.clipboard) {
       drawerCopyReport.addEventListener("click", () => {
         const text = buildTextReport(audit);
         navigator.clipboard.writeText(text).then(() => {
           const prev = drawerCopyReport.innerHTML;
           drawerCopyReport.innerHTML = "✓ Report copied";
           setTimeout(() => { drawerCopyReport.innerHTML = prev; }, 1800);
-        });
+        }).catch(() => {});
       });
     }
 
     // Copy URL button in drawer
     const drawerCopyBtn = body.querySelector("#rankace-drawer-copy-url");
-    if (drawerCopyBtn) {
+    if (drawerCopyBtn && navigator.clipboard) {
       drawerCopyBtn.addEventListener("click", () => {
         navigator.clipboard.writeText(audit.url).then(() => {
           const prev = drawerCopyBtn.innerHTML;
@@ -1304,7 +1425,7 @@
             drawerCopyBtn.innerHTML = prev;
             drawerCopyBtn.classList.remove("rankace-is-done");
           }, 1800);
-        });
+        }).catch(() => {});
       });
     }
 
@@ -1543,9 +1664,13 @@
     }
 
     // 2. Meta description ---------------------------------------------
-    const existingDesc = document.querySelector('meta[name="description"]');
+    const existingDesc = document.querySelector('meta[name="description" i]');
     if (!existingDesc || !(existingDesc.getAttribute("content") || "").trim()) {
-      const bodyText = (document.body ? document.body.innerText || "" : "").replace(/\s+/g, " ").trim();
+      const bodyClone = document.body ? document.body.cloneNode(true) : null;
+      if (bodyClone) {
+        bodyClone.querySelectorAll('[id^="rankace-"], [class*="rankace-"], script, style, noscript').forEach((el) => el.remove());
+      }
+      const bodyText = (bodyClone ? bodyClone.textContent || "" : "").replace(/\s+/g, " ").trim();
       const headingText = (document.querySelector("h1, h2") || {}).textContent || "";
       const lead = bodyText.replace(/^\s+/, "").slice(0, 155).trim();
       const candidate = (lead || headingText.replace(/\s+/g, " ").trim()).slice(0, 155);
@@ -1563,7 +1688,9 @@
     }
 
     // 3. Canonical -----------------------------------------------------
-    if (!document.querySelector('link[rel="canonical"]') && location.protocol.startsWith("http")) {
+    const canonicalEl = document.querySelector('link[rel="canonical"]');
+    const existingCanonicalHref = canonicalEl ? (canonicalEl.getAttribute("href") || "").trim() : "";
+    if (!existingCanonicalHref && location.protocol.startsWith("http")) {
       const el = ensureCanonical();
       el.setAttribute("href", location.href.split("#")[0]);
       recordAutoFix({
@@ -1808,6 +1935,9 @@
       if (idx === 0) return;
       const tag = document.createElement("h2");
       while (el.firstChild) tag.appendChild(el.firstChild);
+      Array.from(el.attributes).forEach((attr) => {
+        if (attr.name !== "class" && attr.name !== "id") tag.setAttribute(attr.name, attr.value);
+      });
       if (el.className) tag.setAttribute("class", el.className);
       if (el.parentNode) el.parentNode.replaceChild(tag, el);
       demoted += 1;
@@ -1835,115 +1965,93 @@
     });
     if (noopener) fixes.push(`Added rel="noopener" to ${noopener} link${noopener === 1 ? "" : "s"}`);
 
-    const src = clone.outerHTML;
-    const headMatch = src.match(/<head[^>]*>[\s\S]*?<\/head>/i);
-    if (!headMatch) return { html: null, note: "No <head> found in document" };
+    if (!exportHead) return { html: null, note: "No <head> found in document" };
 
-    let head = headMatch[0];
-    const originalHead = head;
-
-    // Every value below is inserted via callback replacements: a plain
-    // string replacement would interpret $& / $' sequences that happen to
-    // appear in page content and corrupt the exported markup.
-    const pushMeta = (name, content) => {
-      head = head.replace(
-        /(<\/head>)/i,
-        (m) => `  <meta name="${name}" content="${escapeAttr(content)}">\n${m}`
-      );
-    };
-    const pushLink = (rel, href) => {
-      head = head.replace(
-        /(<\/head>)/i,
-        (m) => `  <link rel="${rel}" href="${escapeAttr(href)}">\n${m}`
-      );
-    };
-    const headHas = (re) => re.test(head);
-    // Presence is decided on the CLONE'S DOM, never by regexing the head
-    // string: a <script> in the page's head (or our own inlined source in
-    // test harnesses) can contain literal "<title>…</title>" or
-    // name="viewport" text and falsely mark the tag as already present.
-    const cloneHas = (sel) => !!clone.querySelector(sel);
-
-    // title (derive from the H1 when the page has none — same as the live fix)
-    const title = (((clone.querySelector("head title") || {}).textContent) || "").trim() ||
-      ((clone.querySelector("h1") || {}).textContent || "").replace(/\s+/g, " ").trim().slice(0, 60);
-    if (title && !cloneHas("head title")) {
-      head = head.replace(/(<\/head>)/i, (m) => `  <title>${escapeHTML(title)}</title>\n${m}`);
-      fixes.push("Added <title>");
-    }
-
-    // meta description (derive from the opening paragraph when missing).
-    // Derived from the CLEAN clone, minus scripts/styles: reading the live
-    // body.innerText used to pull the pill/drawer labels ("⚡ Rankace 0 19
-    // Fixes") into the exported meta tag.
-    let desc = (((clone.querySelector('meta[name="description"]') || {}).content) || "").trim();
-    if (!desc) {
-      const probe = clone.cloneNode(true);
-      probe.querySelectorAll("script,style,noscript").forEach((el) => el.remove());
-      desc = ((probe.querySelector("body") || {}).textContent || "")
-        .replace(/\s+/g, " ").trim().slice(0, 155);
-    }
-    if (desc && !cloneHas('meta[name="description"]')) {
-      pushMeta("description", desc);
-      fixes.push("Added meta description");
-    }
-
-    // viewport
-    if (!cloneHas('meta[name="viewport"]')) {
-      pushMeta("viewport", "width=device-width, initial-scale=1");
-      fixes.push("Added viewport meta");
-    }
-
-    // charset
-    if (!cloneHas("meta[charset]")) {
-      head = head.replace(/(<\/head>)/i, '  <meta charset="utf-8">\n$1');
-      fixes.push("Added charset");
-    }    // canonical
-    if (!cloneHas('link[rel="canonical"]') && location.protocol.startsWith("http")) {
-      pushLink("canonical", location.href.split("#")[0]);
-      fixes.push("Added canonical");
-    }
-
-    // robots: strip noindex only
-    const robotsMetaEl = clone.querySelector('meta[name="robots"]');
-    if (robotsMetaEl) {
-      const content = (robotsMetaEl.getAttribute("content") || "").trim();
-      const cleaned = content.split(",").map((d) => d.trim()).filter((d) => !/^(noindex|none)$/i.test(d)).join(",");
-      if (cleaned !== content) {
-        const escapedContent = escapeAttr(content);
-        if (head.includes(`content="${escapedContent}"`)) {
-          head = head.replace(`content="${escapedContent}"`, () => `content="${escapeAttr(cleaned)}"`);
-          fixes.push("Removed noindex");
-        }
+    // Apply head and <html> corrections directly on the cloned DOM rather than
+    // regex-replacing <head>...</head>, so inline scripts containing literal
+    // "</head>" text or duplicate attribute strings cannot corrupt the output.
+    const existingTitleEl = exportHead.querySelector("title");
+    const existingTitleText = existingTitleEl ? (existingTitleEl.textContent || "").trim() : "";
+    if (!existingTitleText) {
+      const derivedTitle = ((clone.querySelector("h1") || {}).textContent || "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 60);
+      if (derivedTitle) {
+        const titleEl = existingTitleEl || document.createElement("title");
+        titleEl.textContent = derivedTitle;
+        if (!existingTitleEl) exportHead.appendChild(titleEl);
+        fixes.push("Added <title>");
       }
     }
 
-    // lang on <html> is applied to the FINAL string below: the <html> tag
-    // sits outside the <head> match, so replacing it in `head` would
-    // silently report a fix that never happened.
+    const existingDescEl = exportHead.querySelector('meta[name="description" i]');
+    const existingDescText = existingDescEl ? (existingDescEl.getAttribute("content") || "").trim() : "";
+    if (!existingDescText) {
+      const probe = clone.cloneNode(true);
+      probe.querySelectorAll("script,style,noscript").forEach((el) => el.remove());
+      const derivedDesc = ((probe.querySelector("body") || {}).textContent || "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 155);
+      if (derivedDesc) {
+        const descEl = existingDescEl || document.createElement("meta");
+        descEl.setAttribute("name", "description");
+        descEl.setAttribute("content", derivedDesc);
+        if (!existingDescEl) exportHead.appendChild(descEl);
+        fixes.push("Added meta description");
+      }
+    }
 
-    const headChanged = head !== originalHead;
-    let html = headChanged ? src.replace(originalHead, () => head) : src;
+    if (!exportHead.querySelector('meta[name="viewport" i]')) {
+      const vp = document.createElement("meta");
+      vp.setAttribute("name", "viewport");
+      vp.setAttribute("content", "width=device-width, initial-scale=1");
+      exportHead.appendChild(vp);
+      fixes.push("Added viewport meta");
+    }
 
-    // documentElement.outerHTML starts at <html>: without this the
-    // downloaded file lost its doctype and opened in quirks mode.
-    if (!/^\s*<!doctype/i.test(html)) html = "<!doctype html>\n" + html;
+    if (!exportHead.querySelector("meta[charset]")) {
+      const cs = document.createElement("meta");
+      cs.setAttribute("charset", "utf-8");
+      exportHead.insertBefore(cs, exportHead.firstChild);
+      fixes.push("Added charset");
+    }
 
-    // DOM check (not a regex over the serialized string): inlined script
-    // text like `<html${attrs} lang=...` used to satisfy this test and
-    // silently skip the fix.
-    if (!clone.getAttribute("lang")) {
-      const langAttr = escapeAttr((navigator.language || "en").toLowerCase());
-      html = html.replace(/<html([^>]*)>/i, (m, attrs) => `<html${attrs} lang="${langAttr}">`);
+    const canonicalEl = exportHead.querySelector('link[rel="canonical"]');
+    const canonicalHref = canonicalEl ? (canonicalEl.getAttribute("href") || "").trim() : "";
+    if (!canonicalHref && location.protocol.startsWith("http")) {
+      const link = canonicalEl || document.createElement("link");
+      link.setAttribute("rel", "canonical");
+      link.setAttribute("href", location.href.split("#")[0]);
+      if (!canonicalEl) exportHead.appendChild(link);
+      fixes.push("Added canonical");
+    }
+
+    const robotsMetaEl = exportHead.querySelector('meta[name="robots" i]');
+    if (robotsMetaEl) {
+      const content = (robotsMetaEl.getAttribute("content") || "").trim();
+      const cleaned = content
+        .split(",")
+        .map((d) => d.trim())
+        .filter((d) => !/^(noindex|none)$/i.test(d))
+        .join(", ");
+      if (cleaned !== content) {
+        robotsMetaEl.setAttribute("content", cleaned);
+        fixes.push("Removed noindex");
+      }
+    }
+
+    if (!(clone.getAttribute("lang") || "").trim()) {
+      const langAttr = (navigator.language || "en").toLowerCase();
+      clone.setAttribute("lang", langAttr);
       fixes.push("Declared <html lang>");
     }
 
-    // Always hand back the file. If the live page was already corrected by
-    // Auto-Fix, the clone contains those fixes, so there is nothing NEW to
-    // fold in -- but the user still asked for the corrected file, and
-    // refusing here (the old behaviour) left the download button dead
-    // exactly in the most common flow: Fix all -> Download.
-    if (!headChanged && fixes.length === 0) {
+    let html = clone.outerHTML;
+    if (!/^\s*<!doctype/i.test(html)) html = "<!doctype html>\n" + html;
+
+    if (fixes.length === 0) {
       fixes.push("Page already corrected in this tab — exporting the fixed version");
     }
     return { html, fixes: fixes.filter(Boolean) };
@@ -2066,6 +2174,41 @@
       sendResponse(html ? { ok: true, html, fixes: fixes || [] } : { ok: false, note: note || "No changes needed" });
       return true;
     }
+
+    if (request.action === "APPLY_CUSTOM_META") {
+      const nextTitle = typeof request.title === "string" ? request.title.trim() : "";
+      const nextDesc = typeof request.description === "string" ? request.description.trim() : "";
+      if (nextTitle) document.title = nextTitle;
+      if (nextDesc) {
+        const meta = ensureMetaByName("description");
+        meta.setAttribute("content", nextDesc);
+      }
+      const audit = runLiveAudit();
+      if (drawerOpen) {
+        renderDrawerContent(audit, null);
+        if (isInspectionEnabled) highlightAllIssuesOnPage(audit.issues);
+      }
+      sendResponse({ ok: true, audit });
+      return true;
+    }
+
+    if (request.action === "INJECT_JSONLD") {
+      try {
+        const raw = typeof request.jsonLd === "string" ? request.jsonLd : JSON.stringify(request.jsonLd, null, 2);
+        const parsed = JSON.parse(raw);
+        const script = document.createElement("script");
+        script.type = "application/ld+json";
+        script.dataset.rankaceGenerated = "1";
+        script.textContent = JSON.stringify(parsed, null, 2);
+        ensureHead().appendChild(script);
+        const audit = runLiveAudit();
+        if (drawerOpen) renderDrawerContent(audit, null);
+        sendResponse({ ok: true, audit });
+      } catch (err) {
+        sendResponse({ ok: false, error: err.message || "Invalid JSON-LD" });
+      }
+      return true;
+    }
   });
 
   // -------------------------------------------------------------
@@ -2106,9 +2249,19 @@
 
     clearTimeout(mutationDebounceTimer);
     mutationDebounceTimer = setTimeout(() => {
+      const prevSig = cachedAuditData
+        ? `${cachedAuditData.score}:${cachedAuditData.issues.length}:${cachedAuditData.title}:${cachedAuditData.url}`
+        : "";
       const audit = runLiveAudit();
+      const nextSig = `${audit.score}:${audit.issues.length}:${audit.title}:${audit.url}`;
       if (drawerOpen) {
-        renderDrawerContent(audit);
+        if (nextSig !== prevSig) {
+          const bodyEl = document.getElementById("rankace-drawer-body");
+          const prevScroll = bodyEl ? bodyEl.scrollTop : 0;
+          renderDrawerContent(audit);
+          const nextBodyEl = document.getElementById("rankace-drawer-body");
+          if (nextBodyEl) nextBodyEl.scrollTop = prevScroll;
+        }
         const toggle = document.getElementById("rankace-drawer-toggle-boxes");
         if (!toggle || toggle.checked) {
           highlightAllIssuesOnPage(audit.issues);

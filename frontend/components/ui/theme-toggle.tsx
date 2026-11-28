@@ -10,7 +10,7 @@ import { useTheme } from "./theme-provider";
  * binary switch -- which is exactly the setting people want to reset.
  */
 export function ThemeToggle({ className = "" }: { className?: string }) {
-  const { theme, setTheme, useSystemTheme, followingSystem, mounted } = useTheme();
+  const { theme, setTheme, useSystemTheme: selectSystemTheme, followingSystem, mounted } = useTheme();
 
   const options = [
     { value: "light" as const, label: "Light", Icon: Sun },
@@ -43,7 +43,7 @@ export function ThemeToggle({ className = "" }: { className?: string }) {
             aria-checked={active}
             aria-label={`${label} theme`}
             title={`${label} theme`}
-            onClick={() => (value === "system" ? useSystemTheme() : setTheme(value))}
+            onClick={() => (value === "system" ? selectSystemTheme() : setTheme(value))}
             className={[
               "inline-flex h-7 w-7 items-center justify-center rounded-pill transition-colors duration-150 ease-instrument",
               active

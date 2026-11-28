@@ -38,11 +38,29 @@ const metricHeadings = document.getElementById("metric-headings");
 const metricImages = document.getElementById("metric-images");
 
 // Page detail sections
+const serpPreview = document.getElementById("serp-preview");
+const serpCardView = document.getElementById("serp-card-view");
+const socialCardView = document.getElementById("social-card-view");
+const socialCardMedia = document.getElementById("social-card-media");
+const socialCardDomain = document.getElementById("social-card-domain");
+const socialCardTitle = document.getElementById("social-card-title");
+const socialCardDesc = document.getElementById("social-card-desc");
 const serpUrl = document.getElementById("serp-url");
 const serpTitle = document.getElementById("serp-title");
 const serpDesc = document.getElementById("serp-desc");
+const simTitleInput = document.getElementById("sim-title-input");
+const simDescInput = document.getElementById("sim-desc-input");
+const simTitleGauge = document.getElementById("sim-title-gauge");
+const simDescGauge = document.getElementById("sim-desc-gauge");
+const btnSimApply = document.getElementById("btn-sim-apply");
+const btnSimReset = document.getElementById("btn-sim-reset");
+const vitalsChips = document.getElementById("vitals-chips");
 const factsGrid = document.getElementById("facts-grid");
 const schemaChips = document.getElementById("schema-chips");
+const schemaInspector = document.getElementById("schema-inspector");
+const schemaTypeSelect = document.getElementById("schema-type-select");
+const btnSchemaCopy = document.getElementById("btn-schema-copy");
+const btnSchemaInject = document.getElementById("btn-schema-inject");
 const socialChips = document.getElementById("social-chips");
 const linkChips = document.getElementById("link-chips");
 const headingOutline = document.getElementById("heading-outline");
@@ -50,9 +68,14 @@ const btnCopyReport = document.getElementById("btn-copy-report");
 
 // Auto-fix & export
 const btnAutofix = document.getElementById("btn-autofix");
+const btnHeroAutofix = document.getElementById("btn-hero-autofix");
 const btnDownloadHtml = document.getElementById("btn-download-html");
 const autofixResults = document.getElementById("autofix-results");
 const quickTools = document.getElementById("quick-tools");
+const tabIssuesCount = document.getElementById("tab-issues-count");
+const explainVerdict = document.getElementById("explain-verdict");
+const explainPillars = document.getElementById("explain-pillars");
+const explainFormula = document.getElementById("explain-formula");
 
 // Initialize
 document.addEventListener("DOMContentLoaded", () => {
@@ -106,7 +129,7 @@ function setInspectionState(enable) {
     btnMasterPower.className = enable ? "btn-power on" : "btn-power off";
   }
   if (btnPowerText) {
-    btnPowerText.textContent = enable ? "SWITCH OFF" : "SWITCH ON";
+    btnPowerText.textContent = enable ? "ON" : "OFF";
   }
   if (powerStatusLabel) {
     powerStatusLabel.textContent = enable ? "INSPECTOR ON" : "INSPECTION PAUSED";
@@ -125,7 +148,7 @@ function setInspectionState(enable) {
       action: "HIGHLIGHT_ALL",
       enable: enable,
       issues: currentAudit ? currentAudit.issues : []
-    });
+    }, () => { void chrome.runtime.lastError; });
   }
 }
 
@@ -151,7 +174,7 @@ function setupEventListeners() {
   // Copy Website Link button
   if (btnCopyUrl) {
     btnCopyUrl.addEventListener("click", () => {
-      if (auditedUrlLink && auditedUrlLink.href) {
+      if (auditedUrlLink && auditedUrlLink.href && navigator.clipboard) {
         navigator.clipboard.writeText(auditedUrlLink.href).then(() => {
           const prev = btnCopyUrl.innerHTML;
           btnCopyUrl.innerHTML = "✓ Copied!";
@@ -160,7 +183,7 @@ function setupEventListeners() {
             btnCopyUrl.innerHTML = prev;
             btnCopyUrl.classList.remove("copied");
           }, 1800);
-        });
+        }).catch(() => {});
       }
     });
   }
@@ -175,14 +198,26 @@ function setupEventListeners() {
     });
   });
 
+  // Studio Primary Tabs
+  document.querySelectorAll(".studio-tab-btn").forEach((btn) => {
+    btn.addEventListener("click", () => switchStudioTab(btn.dataset.studioTab));
+  });
+
+  if (btnHeroAutofix) {
+    btnHeroAutofix.addEventListener("click", () => {
+      switchStudioTab("preview");
+      if (btnAutofix) btnAutofix.click();
+    });
+  }
+
   if (btnCopyReport) {
     btnCopyReport.addEventListener("click", () => {
-      if (!currentAudit) return;
+      if (!currentAudit || !navigator.clipboard) return;
       navigator.clipboard.writeText(buildReportText(currentAudit)).then(() => {
         const prev = btnCopyReport.innerHTML;
         btnCopyReport.innerHTML = "✓ Full report copied";
         setTimeout(() => { btnCopyReport.innerHTML = prev; }, 1800);
-      });
+      }).catch(() => {});
     });
   }
 
@@ -215,6 +250,61 @@ function setupEventListeners() {
 
   if (quickTools) renderQuickTools();
 
+  // SERP & Social simulator controls
+  document.querySelectorAll(".sim-mode-btn").forEach((btn) => {
+    btn.addEventListener("click", () => setSimulatorMode(btn.dataset.simMode));
+  });
+  if (simTitleInput) simTitleInput.addEventListener("input", updateSimulatorPreview);
+  if (simDescInput) simDescInput.addEventListener("input", updateSimulatorPreview);
+  if (btnSimReset) {
+    btnSimReset.addEventListener("click", () => {
+      syncSimulatorInputs(currentAudit);
+      updateSimulatorPreview();
+    });
+  }
+  if (btnSimApply) {
+    btnSimApply.addEventListener("click", async () => {
+      if (!activeTabId) return;
+      const res = await sendMessage({
+        action: "APPLY_CUSTOM_META",
+        title: simTitleInput ? simTitleInput.value : "",
+        description: simDescInput ? simDescInput.value : ""
+      });
+      if (res && res.ok && res.audit) {
+        updateUI(res.audit);
+        const prev = btnSimApply.textContent;
+        btnSimApply.textContent = "✓ Applied";
+        setTimeout(() => { btnSimApply.textContent = prev; }, 1600);
+      }
+    });
+  }
+
+  // JSON-LD Schema generator controls
+  if (btnSchemaCopy) {
+    btnSchemaCopy.addEventListener("click", () => {
+      if (!currentAudit || !navigator.clipboard) return;
+      const jsonLd = buildSchemaTemplate(schemaTypeSelect ? schemaTypeSelect.value : "WebPage", currentAudit);
+      navigator.clipboard.writeText(JSON.stringify(jsonLd, null, 2)).then(() => {
+        const prev = btnSchemaCopy.textContent;
+        btnSchemaCopy.textContent = "✓ Copied JSON-LD";
+        setTimeout(() => { btnSchemaCopy.textContent = prev; }, 1600);
+      }).catch(() => {});
+    });
+  }
+  if (btnSchemaInject) {
+    btnSchemaInject.addEventListener("click", async () => {
+      if (!activeTabId || !currentAudit) return;
+      const jsonLd = buildSchemaTemplate(schemaTypeSelect ? schemaTypeSelect.value : "WebPage", currentAudit);
+      const res = await sendMessage({ action: "INJECT_JSONLD", jsonLd });
+      if (res && res.ok && res.audit) {
+        updateUI(res.audit);
+        const prev = btnSchemaInject.textContent;
+        btnSchemaInject.textContent = "✓ Injected";
+        setTimeout(() => { btnSchemaInject.textContent = prev; }, 1600);
+      }
+    });
+  }
+
   // Target Keyword NLP Intent Classifier
   btnIntent.addEventListener("click", testSearchIntent);
   targetKeyword.addEventListener("keyup", (e) => {
@@ -225,9 +315,18 @@ function setupEventListeners() {
   // Re-audit when active tab changes or finishes navigating
   chrome.runtime.onMessage.addListener((request) => {
     if (request.action === "TAB_NAVIGATED" && request.tabId === activeTabId) {
+      renderQuickTools();
       setTimeout(fetchAuditData, 500);
     }
   });
+
+  if (chrome.tabs && chrome.tabs.onActivated) {
+    chrome.tabs.onActivated.addListener(({ tabId }) => {
+      activeTabId = tabId;
+      renderQuickTools();
+      initSidePanel();
+    });
+  }
 }
 
 // Fetch live audit from active tab content script
@@ -253,13 +352,15 @@ function fetchAuditData() {
         action: "HIGHLIGHT_ALL",
         enable: true,
         issues: response.issues
-      });
+      }, () => { void chrome.runtime.lastError; });
     }
   });
 }
 
 // Render complete UI from audit payload
 function updateUI(audit) {
+  currentAudit = audit;
+  renderQuickTools(audit.url);
   // Update Audited Website Link Card
   if (auditedUrlLink) {
     auditedUrlLink.href = audit.url;
@@ -290,6 +391,7 @@ function updateUI(audit) {
   badgeCrit.textContent = `${critCount} Critical`;
   badgeWarn.textContent = `${warnCount} Warnings`;
   countAll.textContent = audit.issues.length;
+  if (tabIssuesCount) tabIssuesCount.textContent = audit.issues.length;
 
   // Overview metrics
   metricWords.textContent = `${audit.stats.wordCount.toLocaleString()} words`;
@@ -297,12 +399,159 @@ function updateUI(audit) {
   metricHeadings.textContent = `H1: ${audit.stats.h1Count} · H2: ${audit.stats.h2Count} · H3: ${audit.stats.h3Count}`;
   metricImages.textContent = `${audit.stats.totalImages} (${audit.stats.missingAltCount} missing alt)`;
 
+  renderExplainSummary(audit, critCount, warnCount);
   renderIssuesFeed();
   renderDetails(audit);
   checkKeywordPlacement();
 }
 
-// Render the SERP preview, page facts, schema, social, link profile and
+function switchStudioTab(tabName) {
+  document.querySelectorAll(".studio-tab-btn").forEach((b) => {
+    b.classList.toggle("active", b.dataset.studioTab === tabName);
+  });
+  document.querySelectorAll(".studio-panel").forEach((p) => {
+    p.hidden = p.dataset.panel !== tabName;
+  });
+}
+
+/** Build a clear, plain-English scorecard summary suitable for live demos. */
+function renderExplainSummary(audit, critCount, warnCount) {
+  if (!explainVerdict || !explainPillars || !explainFormula) return;
+  const topIssues = audit.issues
+    .filter((i) => i.severity === "critical" || i.severity === "warning")
+    .slice(0, 2)
+    .map((i) => i.title.toLowerCase());
+  const issueNote = topIssues.length
+    ? `Key improvements needed: ${topIssues.join(" and ")}.`
+    : "No critical or warning defects detected — key on-page SEO signals are healthy.";
+  explainVerdict.textContent = `${audit.domain || "This page"} scores ${audit.score}/100. ${issueNote}`;
+
+  const computePillar = (cats) => {
+    const subset = audit.issues.filter((i) => cats.includes(i.category));
+    const penalty = subset.reduce((sum, i) => sum + (i.severity === "critical" ? 28 : i.severity === "warning" ? 14 : 4), 0);
+    return Math.max(15, 100 - penalty);
+  };
+  const pillars = [
+    ["Titles, Meta & Indexing", computePillar(["Metadata", "Indexability"])],
+    ["Headings, Content & Links", computePillar(["Headings", "Content", "Images", "Links"])],
+    ["Technical Setup & Speed", computePillar(["Technical"])],
+    ["Social & Rich Schema", computePillar(["Social", "Schema"])],
+  ];
+  explainPillars.innerHTML = pillars.map(([label, pct]) => {
+    const tone = pct >= 85 ? "ok" : pct >= 60 ? "warn" : "bad";
+    return `
+      <div class="pillar-row">
+        <div class="pillar-meta"><span>${escapeHTML(label)}</span><span class="txt-mono">${pct}%</span></div>
+        <div class="pillar-track"><div class="pillar-fill ${tone}" style="width:${pct}%"></div></div>
+      </div>`;
+  }).join("");
+
+  const rawPoints = critCount * 9 + warnCount * 3;
+  explainFormula.textContent = `Formula: 100 − (${critCount} critical × 9 + ${warnCount} warnings × 3) × 1.6  [−${Math.round(rawPoints * 1.6)} pts] = ${audit.score}/100`;
+}
+
+function setSimulatorMode(mode) {
+  document.querySelectorAll(".sim-mode-btn").forEach((b) => {
+    b.classList.toggle("active", b.dataset.simMode === mode);
+  });
+  if (serpPreview) serpPreview.classList.toggle("is-mobile", mode === "mobile");
+  if (serpCardView) serpCardView.hidden = mode === "social";
+  if (socialCardView) socialCardView.hidden = mode !== "social";
+}
+
+let _measureCtx = null;
+/** Measure rendered pixel width for Google SERP title/description typography. */
+function measureSerpPixels(text, font) {
+  if (!_measureCtx) {
+    const c = document.createElement("canvas");
+    _measureCtx = c.getContext("2d");
+  }
+  if (!_measureCtx) return text.length * 8;
+  _measureCtx.font = font;
+  return Math.round(_measureCtx.measureText(text || "").width);
+}
+
+function syncSimulatorInputs(audit) {
+  if (!audit) return;
+  if (simTitleInput) simTitleInput.value = audit.title || "";
+  if (simDescInput) simDescInput.value = (audit.stats && audit.stats.metaDescription) || "";
+}
+
+function updateSimulatorPreview() {
+  const draftTitle = simTitleInput ? simTitleInput.value.trim() : "";
+  const draftDesc = simDescInput ? simDescInput.value.trim() : "";
+  if (serpTitle) serpTitle.textContent = draftTitle || "(no title tag)";
+  if (serpDesc) {
+    serpDesc.textContent = draftDesc || "(no meta description — search engines will invent a snippet)";
+  }
+  if (socialCardTitle) socialCardTitle.textContent = draftTitle || (socialCardTitle.dataset.ogFallback || "—");
+  if (socialCardDesc) socialCardDesc.textContent = draftDesc || (socialCardDesc.dataset.ogFallback || "—");
+
+  const titlePx = measureSerpPixels(draftTitle, "20px Arial, sans-serif");
+  if (simTitleGauge) {
+    simTitleGauge.textContent = `${draftTitle.length} chars · ${titlePx}px / 580px`;
+    simTitleGauge.className = `sim-gauge ${titlePx > 600 || draftTitle.length < 25 ? "bad" : titlePx > 560 ? "warn" : "ok"}`;
+  }
+  const descPx = measureSerpPixels(draftDesc, "14px Arial, sans-serif");
+  if (simDescGauge) {
+    simDescGauge.textContent = `${draftDesc.length} chars · ${descPx}px / 920px`;
+    simDescGauge.className = `sim-gauge ${descPx > 960 || draftDesc.length < 70 ? "bad" : descPx > 880 ? "warn" : "ok"}`;
+  }
+}
+
+/** Generate a valid Schema.org JSON-LD payload seeded with live page facts. */
+function buildSchemaTemplate(schemaType, audit) {
+  const origin = (() => {
+    try { return new URL(audit.url).origin; } catch (e) { return audit.url; }
+  })();
+  const title = (audit && audit.title) || "Untitled Page";
+  const desc = (audit && audit.stats && audit.stats.metaDescription) || "";
+  const image = (audit && audit.facts && audit.facts.social && audit.facts.social.ogImage) || "";
+  if (schemaType === "Article") {
+    return {
+      "@context": "https://schema.org",
+      "@type": "Article",
+      headline: title.slice(0, 110),
+      description: desc,
+      mainEntityOfPage: audit.url,
+      ...(image ? { image: [image] } : {}),
+      datePublished: new Date().toISOString().slice(0, 10),
+      author: { "@type": "Organization", name: audit.domain || "Publisher" }
+    };
+  }
+  if (schemaType === "Organization") {
+    return {
+      "@context": "https://schema.org",
+      "@type": "Organization",
+      name: audit.domain || title,
+      url: origin,
+      ...(image ? { logo: image } : {})
+    };
+  }
+  if (schemaType === "FAQPage") {
+    return {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      mainEntity: [{
+        "@type": "Question",
+        name: (audit && audit.stats && audit.stats.h1) || `About ${title}`,
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: desc || `Summary and details for ${title}.`
+        }
+      }]
+    };
+  }
+  return {
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    name: title,
+    url: audit.url,
+    description: desc
+  };
+}
+
+// Render the SERP preview, page facts, vitals, schema, social, link profile and
 // heading outline. Everything is read from the audit's `facts` object so the
 // side panel never makes a claim the DOM did not support.
 function renderDetails(audit) {
@@ -310,10 +559,49 @@ function renderDetails(audit) {
   if (!facts) return;
 
   if (serpUrl) serpUrl.textContent = audit.url;
-  if (serpTitle) serpTitle.textContent = audit.title || "(no title tag)";
-  if (serpDesc) {
-    serpDesc.textContent =
-      audit.stats.metaDescription || "(no meta description — search engines will invent a snippet)";
+  syncSimulatorInputs(audit);
+  if (socialCardDomain) socialCardDomain.textContent = audit.domain || audit.url;
+  if (socialCardTitle) {
+    socialCardTitle.dataset.ogFallback = facts.social.ogTitle || audit.title || "—";
+  }
+  if (socialCardDesc) {
+    socialCardDesc.dataset.ogFallback = facts.social.ogDescription || audit.stats.metaDescription || "—";
+  }
+  if (socialCardMedia) {
+    socialCardMedia.innerHTML = "";
+    const ogImg = facts.social.ogImage || "";
+    if (/^https?:\/\//i.test(ogImg)) {
+      const img = document.createElement("img");
+      img.className = "social-card-img";
+      img.alt = "Open Graph preview";
+      img.referrerPolicy = "no-referrer";
+      img.src = ogImg;
+      img.addEventListener("error", () => {
+        socialCardMedia.innerHTML = '<div class="social-card-placeholder">og:image failed to load</div>';
+      });
+      socialCardMedia.appendChild(img);
+    } else {
+      socialCardMedia.innerHTML = '<div class="social-card-placeholder">No og:image declared</div>';
+    }
+  }
+  updateSimulatorPreview();
+
+  if (vitalsChips) {
+    const v = facts.vitals || {};
+    const vChips = [];
+    if (typeof v.lcpMs === "number") {
+      vChips.push(chip(`LCP ${v.lcpMs}ms`, v.lcpMs <= 2500 ? "ok" : "bad"));
+    } else {
+      vChips.push(chip("LCP pending"));
+    }
+    vChips.push(chip(`CLS ${typeof v.cls === "number" ? v.cls : 0}`, (v.cls || 0) <= 0.1 ? "ok" : "bad"));
+    if (typeof v.ttfbMs === "number") {
+      vChips.push(chip(`TTFB ${v.ttfbMs}ms`, v.ttfbMs <= 800 ? "ok" : "bad"));
+    }
+    if (typeof v.domContentLoadedMs === "number") {
+      vChips.push(chip(`DCL ${v.domContentLoadedMs}ms`));
+    }
+    vitalsChips.innerHTML = vChips.join("");
   }
 
   const rows = [
@@ -356,6 +644,30 @@ function renderDetails(audit) {
     }
     if (facts.schema.invalidBlocks > 0) chips.push(chip(`${facts.schema.invalidBlocks} invalid block(s)`, "bad"));
     schemaChips.innerHTML = chips.join("");
+  }
+
+  if (schemaInspector) {
+    const items = facts.schema.items || [];
+    schemaInspector.innerHTML = items.length
+      ? items.map((item) => {
+          const titleText = item.valid
+            ? (item.types.length ? item.types.join(", ") : "Untyped JSON-LD")
+            : "Syntax Error";
+          const detailText = item.missing && item.missing.length
+            ? `Missing: ${item.missing.join(", ")}`
+            : `Keys: ${(item.keys || []).join(", ") || "none"}`;
+          return `
+            <div class="schema-block-card">
+              <div class="schema-block-head">
+                <span>Block #${item.index} · ${escapeHTML(titleText)}</span>
+                <span class="${item.valid && !(item.missing && item.missing.length) ? "sim-gauge ok" : "sim-gauge warn"}">
+                  ${item.valid ? "valid" : "invalid"}
+                </span>
+              </div>
+              <div class="schema-block-meta">${escapeHTML(detailText)}</div>
+            </div>`;
+        }).join("")
+      : '<div class="schema-block-meta">No JSON-LD blocks detected — generate one below.</div>';
   }
 
   if (socialChips) {
@@ -419,6 +731,7 @@ function buildReportText(audit) {
     `Words: ${audit.stats.wordCount} · H1: ${audit.stats.h1Count} · H2: ${audit.stats.h2Count} · H3: ${audit.stats.h3Count}`,
     `Links: ${audit.stats.internalLinks} internal / ${audit.stats.externalLinks} external / ${audit.stats.nofollowLinks} nofollow`,
     `Schema: ${(audit.stats.schemaTypes || []).join(", ") || "none"}`,
+    `Vitals: LCP ${audit.facts?.vitals?.lcpMs ?? "pending"}ms · CLS ${audit.facts?.vitals?.cls ?? 0} · TTFB ${audit.facts?.vitals?.ttfbMs ?? "--"}ms`,
     "",
     `Findings (${audit.issues.length}):`
   ];
@@ -483,7 +796,7 @@ function renderIssuesFeed() {
           action: "HIGHLIGHT_DEFECT",
           targetSelector: issue.targetSelector,
           issue: issue
-        });
+        }, () => { void chrome.runtime.lastError; });
       });
     }
 
@@ -500,12 +813,14 @@ function checkKeywordPlacement() {
   }
 
   const titleHas = (currentAudit.stats.title || "").toLowerCase().includes(kw);
+  const h1Has = (currentAudit.stats.h1 || "").toLowerCase().includes(kw);
   const descHas = (currentAudit.stats.metaDescription || "").toLowerCase().includes(kw);
 
   let status = [];
   if (titleHas) status.push("✓ in Title");
+  if (h1Has) status.push("✓ in H1");
   if (descHas) status.push("✓ in Meta");
-  if (!titleHas && !descHas) status.push("⚠️ Missing in Title & Meta");
+  if (!titleHas && !h1Has && !descHas) status.push("⚠️ Missing in Title, H1 & Meta");
 
   keywordPresence.textContent = status.join(" · ");
 }
@@ -530,8 +845,8 @@ async function testSearchIntent() {
       const data = await res.json();
       intentResult.style.display = "block";
       intentResult.innerHTML = `
-        <strong>Intent:</strong> ${data.intent} (${Math.round(data.confidence * 100)}% conf)<br/>
-        <small class="txt-secondary">${data.serp_target || "SERP Target: Content page"}</small>
+        <strong>Intent:</strong> ${escapeHTML(data.intent || "Unknown")} (${Math.round((data.confidence || 0) * 100)}% conf)<br/>
+        <small class="txt-secondary">${escapeHTML(data.why || data.serp_target || "SERP Target: Content page")}</small>
       `;
     } else {
       throw new Error("Rankace backend unreachable");
@@ -581,19 +896,19 @@ function renderAutofixResults(result) {
 }
 
 // One-click links to the free external tools SEOs check daily.
-function renderQuickTools() {
+function renderQuickTools(overrideUrl) {
   if (!quickTools) return;
-  chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
-    if (!tab || !tab.url || !/^https?:/.test(tab.url)) {
+  const populate = (pageUrl) => {
+    if (!pageUrl || !/^https?:/.test(pageUrl)) {
       quickTools.innerHTML = '<span class="chip">Restricted page</span>';
       return;
     }
     let u;
-    try { u = new URL(tab.url); } catch (e) {
+    try { u = new URL(pageUrl); } catch (e) {
       quickTools.innerHTML = '<span class="chip">Restricted page</span>';
       return;
     }
-    const enc = encodeURIComponent(tab.url);
+    const enc = encodeURIComponent(pageUrl);
     const host = encodeURIComponent(u.hostname.replace(/^www\./, ""));
     const tools = [
       ["PageSpeed", `https://pagespeed.web.dev/analysis?url=${enc}`],
@@ -608,6 +923,13 @@ function renderQuickTools() {
     quickTools.innerHTML = tools
       .map(([label, url]) => `<a class="chip chip-link" href="${escapeAttr(url)}" target="_blank" rel="noopener">↗ ${escapeHTML(label)}</a>`)
       .join("");
+  };
+  if (overrideUrl) {
+    populate(overrideUrl);
+    return;
+  }
+  chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+    populate(tab && tab.url);
   });
 }
 

@@ -1,4 +1,4 @@
-// Builds extension/_verify.html: a deliberately broken page with the real
+// Builds extension/verify.html: a deliberately broken page with the real
 // content.js inlined, so the auto-fix engine can be driven in a plain browser.
 import fs from "node:fs";
 import path from "node:path";
@@ -54,5 +54,5 @@ const chromeStub = `<script>
 // comments), which a plain-string replacement would expand and corrupt.
 const html = fixture.replace("</head>", () => chromeStub + "\n<script>\n" + contentJs + "\n</script>\n</head>");
 
-fs.writeFileSync(path.join(root, "extension", "_verify.html"), html);
-console.log("wrote extension/_verify.html", html.length, "bytes");
+fs.writeFileSync(path.join(root, "extension", "verify.html"), html);
+console.log("wrote extension/verify.html", html.length, "bytes");

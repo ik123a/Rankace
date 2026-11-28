@@ -16,6 +16,7 @@ def analyze_technical(pages: list) -> tuple[list[dict], dict]:
             continue
         if p.status_code >= 400:
             add(p.url, "broken_link", "critical", f"Page returns HTTP {p.status_code}.")
+            continue
         if not p.title:
             add(p.url, "missing_title", "high", "Missing <title> tag.")
         elif len(p.title) < 30:

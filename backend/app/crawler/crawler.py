@@ -95,8 +95,128 @@ def _robots_allowed(base: str, user_agent: str) -> robotparser.RobotFileParser |
     return None
 
 
+def _extract_with_bs4(html: str, url: str, status_code: int, elapsed_ms: int, depth: int, start_url: str) -> CrawledPage:
+    """Fallback HTML extractor when Scrapling is unavailable."""
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(html or "", "lxml")
+    title = soup.title.string.strip() if soup.title and soup.title.string else ""
+    meta_desc = ""
+    for m in soup.find_all("meta"):
+        if (m.get("name") or "").strip().lower() == "description":
+            meta_desc = (m.get("content") or "").strip()
+            break
+
+    canonical = ""
+    for link in soup.find_all("link"):
+        rel = [r.lower() for r in (link.get("rel") or [])]
+        if "canonical" in rel:
+            canonical = (link.get("href") or "").strip()
+            break
+
+    robots_directives: set[str] = set()
+    for m in soup.find_all("meta"):
+        if (m.get("name") or "").strip().lower() == "robots":
+            content = (m.get("content") or "").lower().replace(",", " ")
+            robots_directives.update(content.split())
+    indexable = not robots_directives.intersection({"noindex", "none"})
+
+    h1_els = soup.find_all("h1")
+    h1 = " ".join(el.get_text(" ", strip=True) for el in h1_els if el.get_text(strip=True))
+    h1_count = len(h1_els)
+    if not h1:
+        aria_h1s = soup.find_all(attrs={"role": "heading", "aria-level": "1"})
+        if aria_h1s:
+            h1 = " ".join(el.get_text(" ", strip=True) for el in aria_h1s if el.get_text(strip=True))
+            h1_count = len(aria_h1s)
+    if h1 and h1_count == 0:
+        h1_count = 1
+
+    h2_list = [h2.get_text(" ", strip=True) for h2 in soup.find_all("h2") if h2.get_text(strip=True)][:20]
+
+    body_soup = BeautifulSoup(html or "", "lxml")
+    for tag in body_soup(["script", "style", "noscript", "svg"]):
+        tag.decompose()
+    body = body_soup.body or body_soup
+    clean_text = " ".join(body.get_text(" ", strip=True).split())
+    word_count = len([w for w in clean_text.split() if w])
+
+    img_nodes = soup.find_all("img")
+    missing_alt = 0
+    for img in img_nodes:
+        alt = (img.get("alt") or "").strip()
+        role = img.get("role", "")
+        aria_hidden = img.get("aria-hidden", "")
+        if not alt and role not in ("presentation", "none") and aria_hidden != "true":
+            missing_alt += 1
+
+    schema_types: list[str] = []
+    for s in soup.find_all("script", attrs={"type": "application/ld+json"}):
+        try:
+            d = json.loads(s.string or "")
+            if isinstance(d, dict) and "@type" in d:
+                schema_types.append(d["@type"])
+            elif isinstance(d, list):
+                for item in d:
+                    if isinstance(item, dict) and "@type" in item:
+                        schema_types.append(item["@type"])
+        except Exception:
+            pass
+
+    og_title = ""
+    for m in soup.find_all("meta"):
+        if (m.get("property") or "").strip().lower() == "og:title":
+            og_title = (m.get("content") or "").strip()
+            break
+
+    is_spa_shell = word_count < 30 and bool(soup.select("#__next, #root, #app, [data-reactroot]"))
+
+    start_host = urlparse(start_url).hostname
+    out_links: list[str] = []
+    internal = 0
+    external = 0
+    for a in soup.find_all("a", href=True):
+        href = a["href"]
+        norm = normalize_url(url, href)
+        if norm and urlparse(norm).hostname == start_host:
+            internal += 1
+            out_links.append(norm)
+        elif href.startswith("http"):
+            external += 1
+
+    return CrawledPage(
+        url=url,
+        status_code=status_code,
+        load_time_ms=elapsed_ms,
+        title=title,
+        meta_description=meta_desc,
+        h1=h1,
+        h1_count=h1_count,
+        h2_list=h2_list,
+        canonical=canonical,
+        word_count=word_count,
+        images_total=len(img_nodes),
+        images_missing_alt=missing_alt,
+        internal_links=internal,
+        external_links=external,
+        indexable=indexable,
+        depth=depth,
+        content_text=clean_text[:20000],
+        out_links=list(dict.fromkeys(out_links))[:200],
+        schema_types=schema_types,
+        og_title=og_title,
+        is_spa_shell=is_spa_shell,
+    )
+
+
 def extract_page_data(sel, url: str, status_code: int, elapsed_ms: int, depth: int, start_url: str) -> CrawledPage:
-    """Extract full SEO data using Scrapling's high-speed C-backed Selector."""
+    """Extract full SEO data using Scrapling's high-speed C-backed Selector (with BeautifulSoup fallback)."""
+    if not hasattr(sel, "css") or not hasattr(sel, "xpath"):
+        raw_html = getattr(sel, "text", "") or ""
+        if SCRAPLING_AVAILABLE:
+            sel = Selector(raw_html)
+        else:
+            return _extract_with_bs4(raw_html, url, status_code, elapsed_ms, depth, start_url)
     # 1. Title
     title = (sel.css("title::text").get() or "").strip()
 
@@ -196,12 +316,13 @@ def extract_page_data(sel, url: str, status_code: int, elapsed_ms: int, depth: i
     is_spa_shell = word_count < 30 and bool(sel.css("#__next, #root, #app, [data-reactroot]"))
 
     # 11. Links (Internal vs External with deduplication)
+    start_host = urlparse(start_url).hostname
     out_links = []
     internal = 0
     external = 0
     for href in sel.css("a[href]::attr(href)").getall():
-        norm = normalize_url(start_url, href)
-        if norm:
+        norm = normalize_url(url, href)
+        if norm and urlparse(norm).hostname == start_host:
             internal += 1
             out_links.append(norm)
         elif href.startswith("http"):
@@ -287,6 +408,11 @@ def follow(url: str, timeout: int = 15):
 
 def fetch_url(url: str, timeout: int = 15):
     """Fetch URL using Scrapling Fetcher (TLS spoofing & stealth headers), fallback to httpx."""
+    resp, _final_url, status, elapsed, ctype = _fetch_url_with_final(url, timeout=timeout)
+    return resp, status, elapsed, ctype
+
+
+def _fetch_url_with_final(url: str, timeout: int = 15):
     t0 = time.time()
     try:
         resp, final_url, status, ctype = follow(url, timeout=timeout)
@@ -294,17 +420,17 @@ def fetch_url(url: str, timeout: int = 15):
         # A redirect pointed somewhere internal. Treat it as unfetchable rather
         # than silently crawling it -- the reason is recorded on the page.
         logger.warning(f"Blocked fetch for {url}: {e}")
-        return None, 0, int((time.time() - t0) * 1000), ""
+        return None, url, 0, int((time.time() - t0) * 1000), ""
     except Exception as e:
         logger.warning(f"HTTP fetch failed for {url}: {e}")
-        return None, 0, int((time.time() - t0) * 1000), ""
+        return None, url, 0, int((time.time() - t0) * 1000), ""
 
     elapsed = int((time.time() - t0) * 1000)
     if resp is None:
-        return None, status, elapsed, ctype
+        return None, final_url, status, elapsed, ctype
     if "html" not in ctype and status == 200:
-        return None, status, elapsed, ctype
-    return resp, status, elapsed, ctype
+        return None, final_url, status, elapsed, ctype
+    return resp, final_url, status, elapsed, ctype
 
 
 def fetch_text(url: str, timeout: int = 8) -> tuple[int, str]:
@@ -353,18 +479,19 @@ def crawl_site(start_url: str) -> list[CrawledPage]:
             except Exception:
                 pass
 
-        sel, status_code, elapsed, ctype = fetch_url(url, timeout=settings.crawl_timeout_seconds)
+        sel, final_url, status_code, elapsed, ctype = _fetch_url_with_final(url, timeout=settings.crawl_timeout_seconds)
 
         if sel is None:
             if status_code != 0 and "html" not in ctype:
                 # Non-HTML content (e.g. PDF, image) -> skip
                 continue
             # Connection or fetch error
-            results.append(CrawledPage(url=url, status_code=status_code, load_time_ms=elapsed, depth=depth))
+            results.append(CrawledPage(url=final_url, status_code=status_code, load_time_ms=elapsed, depth=depth))
             continue
 
         try:
-            page = extract_page_data(sel, url, status_code, elapsed, depth, start_url)
+            visited.add(final_url.rstrip("/").lower())
+            page = extract_page_data(sel, final_url, status_code, elapsed, depth, start_url)
             results.append(page)
 
             # Queue newly discovered internal links for BFS traversal

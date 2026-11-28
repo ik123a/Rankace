@@ -6,7 +6,7 @@ import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { useGSAP } from "@gsap/react";
 import { ArrowRight, FlaskConical, GitCompare, Globe2, Radar, ShieldCheck } from "lucide-react";
-import { API_URL } from "../lib/api";
+import { resolveApiBase } from "../lib/api";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/field";
 import { Panel } from "../components/ui/panel";
@@ -88,7 +88,7 @@ export default function LandingPage() {
     setSandboxQuery(queryToTest);
     try {
       const res = await fetch(
-        `${API_URL}/api/projects/intent/classify?query=${encodeURIComponent(queryToTest)}`
+        `${resolveApiBase()}/api/projects/intent/classify?query=${encodeURIComponent(queryToTest)}`
       );
       if (res.ok) {
         const data = (await res.json()) as IntentResult;
@@ -275,6 +275,7 @@ export default function LandingPage() {
                   className="mr-[0.22em] inline-block"
                 >
                   {word}
+                  {index < HEADLINE.length - 1 ? " " : ""}
                 </span>
               ))}
             </h1>

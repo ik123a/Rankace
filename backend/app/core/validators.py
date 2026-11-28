@@ -41,7 +41,7 @@ def normalize_url(base: str, href: str) -> str | None:
     parsed = urlparse(joined)
     if parsed.scheme not in ("http", "https"):
         return None
-    if parsed.path.endswith((".pdf", ".zip", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".mp4", ".css", ".js", ".ico")):
+    if parsed.path.lower().endswith((".pdf", ".zip", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".mp4", ".css", ".js", ".ico")):
         return None
     base_host = urlparse(base).hostname
     if parsed.hostname != base_host:

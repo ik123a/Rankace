@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.analyzers.technical import analyze_technical
 from app.api.auth import current_user, _validate_project_url
 from app.core.database import get_db
-from app.crawler.crawler import crawl_site, fetch_text
+from app.crawler.crawler import crawl_site, fetch_text, follow
 from app.models import (Competitor, ContentGap, CrawlSession, Experiment, Keyword,
                         Page, Project, Recommendation, SeoScore, TechnicalIssue, User)
 from app.nlp.intent import classify_intent, embedding_similarity
@@ -467,18 +467,20 @@ def add_competitor(project_id: int, payload: CompetitorIn, db: Session = Depends
     title, words, similarity = "", 0, 0.0
     fetch_error = ""
     try:
-        with httpx.Client(timeout=15, follow_redirects=False) as client:
-            resp = client.get(url, headers={"User-Agent": "RankaceBot/1.0"})
-            if resp.status_code >= 400:
-                fetch_error = f"Competitor returned HTTP {resp.status_code}."
-            else:
-                from bs4 import BeautifulSoup
+        resp, _final_url, status_code, _ctype = follow(url, timeout=15)
+        if resp is None or status_code == 0:
+            fetch_error = "Could not fetch this URL; the comparison is unavailable."
+        elif status_code >= 400:
+            fetch_error = f"Competitor returned HTTP {status_code}."
+        else:
+            from bs4 import BeautifulSoup
 
-                soup = BeautifulSoup(resp.text, "lxml")
-                title = soup.title.string.strip() if soup.title and soup.title.string else ""
-                words = len(soup.get_text(" ", strip=True).split())
-                yours = db.query(Page).filter(Page.project_id == project.id).first()
-                similarity = round(embedding_similarity(yours.content_text[:5000] if yours else "", soup.get_text(" ", strip=True)[:5000]) * 100, 1)
+            html_body = getattr(resp, "text", "") or ""
+            soup = BeautifulSoup(html_body, "lxml")
+            title = soup.title.string.strip() if soup.title and soup.title.string else ""
+            words = len(soup.get_text(" ", strip=True).split())
+            yours = db.query(Page).filter(Page.project_id == project.id).first()
+            similarity = round(embedding_similarity(yours.content_text[:5000] if yours else "", soup.get_text(" ", strip=True)[:5000]) * 100, 1)
     except Exception as exc:
         # Was a bare `pass`, so an unreachable, blocked or non-HTML competitor
         # was saved as a blank row with 0 words and 0% similarity. The user had
