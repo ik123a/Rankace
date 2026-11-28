@@ -83,8 +83,22 @@ document.addEventListener("DOMContentLoaded", () => {
   setupEventListeners();
 });
 
-async function initSidePanel() {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+async function initSidePanel(forcedTabId) {
+  const selfTab = chrome.tabs.getCurrent ? await chrome.tabs.getCurrent().catch(() => null) : null;
+  let tab = null;
+  if (forcedTabId) {
+    tab = await chrome.tabs.get(forcedTabId).catch(() => null);
+  } else {
+    const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (active && (!selfTab || active.id !== selfTab.id) && !(active.url || "").startsWith("chrome-extension://")) {
+      tab = active;
+    } else if (!activeTabId) {
+      const httpTabs = await chrome.tabs.query({ windowType: "normal" });
+      tab = httpTabs.find((t) => t.active && /^https?:/i.test(t.url || "")) || httpTabs.find((t) => /^https?:/i.test(t.url || "")) || active;
+    } else {
+      return;
+    }
+  }
   if (!tab || !tab.id) {
     if (auditedUrlLink) auditedUrlLink.textContent = "No active tab detected";
     return;
@@ -321,10 +335,14 @@ function setupEventListeners() {
   });
 
   if (chrome.tabs && chrome.tabs.onActivated) {
-    chrome.tabs.onActivated.addListener(({ tabId }) => {
+    chrome.tabs.onActivated.addListener(async ({ tabId }) => {
+      const selfTab = chrome.tabs.getCurrent ? await chrome.tabs.getCurrent().catch(() => null) : null;
+      if (selfTab && tabId === selfTab.id) return;
+      const tab = await chrome.tabs.get(tabId).catch(() => null);
+      if (!tab || (tab.url || "").startsWith("chrome-extension://")) return;
       activeTabId = tabId;
-      renderQuickTools();
-      initSidePanel();
+      renderQuickTools(tab.url);
+      initSidePanel(tabId);
     });
   }
 }
