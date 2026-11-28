@@ -1,12 +1,8 @@
-export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+export const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
 
-/** Resolve backend origin; falls back to same-origin Next.js routes when hosted without NEXT_PUBLIC_API_URL. */
+/** Resolve backend origin; defaults to same-origin Next.js routes unless NEXT_PUBLIC_API_URL is set. */
 export function resolveApiBase(): string {
-  if (process.env.NEXT_PUBLIC_API_URL) return process.env.NEXT_PUBLIC_API_URL;
-  if (typeof window !== "undefined" && !["localhost", "127.0.0.1"].includes(window.location.hostname)) {
-    return "";
-  }
-  return API_URL;
+  return process.env.NEXT_PUBLIC_API_URL || "";
 }
 
 export function getToken(): string | null {
@@ -32,17 +28,9 @@ export function authHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-/** Fetch an API path from the configured backend, falling back to same-origin Next.js routes if local backend is offline. */
+/** Fetch an API path against the resolved API origin. */
 export async function fetchApi(path: string, options: RequestInit = {}): Promise<Response> {
-  const base = resolveApiBase();
-  try {
-    return await fetch(`${base}${path}`, options);
-  } catch (err) {
-    if (base && !process.env.NEXT_PUBLIC_API_URL && typeof window !== "undefined") {
-      return await fetch(path, options);
-    }
-    throw err;
-  }
+  return fetch(`${resolveApiBase()}${path}`, options);
 }
 
 function formatApiError(status: number, statusText: string, raw: string): string {

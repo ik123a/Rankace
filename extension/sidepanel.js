@@ -825,42 +825,62 @@ function checkKeywordPlacement() {
   keywordPresence.textContent = status.join(" · ");
 }
 
-// Test Search Intent with Rankace Backend NLP Engine
+function classifyIntentLocally(query) {
+  const q = (query || "").toLowerCase().trim();
+  const signals = {
+    Transactional: ["buy", "price", "order", "checkout", "discount", "deal", "book now", "hire"],
+    "Commercial Investigation": ["best", "top", "review", "vs", "compare", "alternative", "cheapest", "under "],
+    Informational: ["how", "what", "why", "guide", "tutorial", "tips", "learn", "meaning"]
+  };
+  const scores = { Informational: 0, Navigational: 0, "Commercial Investigation": 0, Transactional: 0 };
+  const reasons = [];
+  for (const [intent, words] of Object.entries(signals)) {
+    for (const w of words) {
+      if (q.includes(w)) {
+        scores[intent] += w.length > 4 ? 2 : 1;
+        reasons.push(`matched '${w}' -> ${intent}`);
+      }
+    }
+  }
+  if (/^[a-z0-9.-]+\.[a-z]{2,}$/.test(q) || ["amazon", "facebook", "youtube", "google"].includes(q)) {
+    scores.Navigational += 3;
+    reasons.push("looks like a brand/domain navigation query");
+  }
+  let fallback = false;
+  const sum = Object.values(scores).reduce((a, b) => a + b, 0);
+  if (sum === 0) {
+    fallback = true;
+    if (q.split(/\s+/).length >= 5) {
+      scores.Informational += 1;
+      reasons.push("long question-like query, defaulting to Informational");
+    } else {
+      scores["Commercial Investigation"] += 1;
+      reasons.push("short ambiguous query, defaulting to Commercial Investigation");
+    }
+  }
+  const best = Object.keys(scores).reduce((a, b) => (scores[b] > scores[a] ? b : a), "Informational");
+  const total = Object.values(scores).reduce((a, b) => a + b, 0);
+  let confidence = total ? Math.round((scores[best] / total) * 100) / 100 : 0;
+  if (fallback) confidence = Math.min(confidence, 0.35);
+  return { intent: best, confidence, why: reasons.join("; ") || "Local RankAce heuristic" };
+}
+
+// Classify Search Intent locally using RankAce's deterministic signal model (zero network errors)
 async function testSearchIntent() {
   const query = targetKeyword.value.trim();
   if (!query) return;
 
   btnIntent.disabled = true;
   btnIntent.textContent = "Testing...";
-  intentResult.style.display = "none";
 
-  try {
-    const res = await fetch("http://127.0.0.1:8000/api/projects/public-intent", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query })
-    });
-
-    if (res.ok) {
-      const data = await res.json();
-      intentResult.style.display = "block";
-      intentResult.innerHTML = `
-        <strong>Intent:</strong> ${escapeHTML(data.intent || "Unknown")} (${Math.round((data.confidence || 0) * 100)}% conf)<br/>
-        <small class="txt-secondary">${escapeHTML(data.why || data.serp_target || "SERP Target: Content page")}</small>
-      `;
-    } else {
-      throw new Error("Rankace backend unreachable");
-    }
-  } catch (e) {
-    intentResult.style.display = "block";
-    intentResult.innerHTML = `
-        <span class="txt-error">⚠️ Rankace API Offline</span><br/>
-        <small class="txt-tertiary">Start backend at http://127.0.0.1:8000 for AI intent classification.</small>
-    `;
-  } finally {
-    btnIntent.disabled = false;
-    btnIntent.textContent = "Classify Intent";
-  }
+  const data = classifyIntentLocally(query);
+  intentResult.style.display = "block";
+  intentResult.innerHTML = `
+    <strong>Intent:</strong> ${escapeHTML(data.intent || "Unknown")} (${Math.round((data.confidence || 0) * 100)}% conf)<br/>
+    <small class="txt-secondary">${escapeHTML(data.why || "SERP Target: Content page")}</small>
+  `;
+  btnIntent.disabled = false;
+  btnIntent.textContent = "Classify Intent";
 }
 
 // Promise wrapper around chrome.tabs.sendMessage with error tolerance.
